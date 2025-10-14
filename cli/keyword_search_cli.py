@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TypeAlias, cast
+from typing import TypeAlias, cast, TypedDict
 from dataclasses import dataclass
 import argparse
 import json
@@ -71,34 +71,81 @@ def normalize_text(
 Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 
 
-def id_key(movie: dict[str, Json]) -> int:
-    """Return an integer id for sorting; be defensive about the stored type.
+class Movie(TypedDict):
+    """A validated subset of the movie JSON structure used by this CLI.
 
-    The JSON schema may store the id as a number or string. Only convert when
-    it's a sensible type and fall back to 0 otherwise.
+    We keep only the fields we need for searching and display. The
+    parsing function below coerces/normalizes values (for example
+    converting an id represented as a string into an int) and returns
+    None for entries that are missing required information (title).
     """
-    val = movie.get("id", 0)
-    if isinstance(val, int):
-        return val
-    if isinstance(val, str):
+
+    id: int
+    title: str
+    description: str | None
+
+
+def parse_movie(raw: Json) -> Movie | None:
+    """Validate and coerce a single raw JSON mapping into a `Movie`.
+
+    Returns
+    - A `Movie` dict with normalized types when the entry is valid.
+    - `None` when the entry doesn't contain the minimal required data
+      (currently a string `title`).
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    raw_title = raw.get("title")
+    if not isinstance(raw_title, str) or not raw_title:
+        # Title is required for our search/display pipeline.
+        return None
+
+    # Normalise the id to an int with a sensible fallback.
+    raw_id = raw.get("id", 0)
+    if isinstance(raw_id, int):
+        movie_id = raw_id
+    elif isinstance(raw_id, float):
+        movie_id = int(raw_id)
+    elif isinstance(raw_id, str):
         try:
-            return int(val)
+            movie_id = int(raw_id)
         except ValueError:
-            return 0
-    if isinstance(val, float):
-        # Convert floats by truncation; non-numeric objects are rejected above.
-        return int(val)
-    return 0
+            try:
+                movie_id = int(float(raw_id))
+            except ValueError:
+                movie_id = 0
+    else:
+        movie_id = 0
+
+    raw_description = raw.get("description")
+    description = raw_description if isinstance(raw_description, str) else None
+
+    # Construct a value that already matches the `Movie` TypedDict so no
+    # cast from a generic mapping is necessary.
+    movie: Movie = {
+        "id": movie_id,
+        "title": raw_title,
+        "description": description,
+    }
+    return movie
 
 
-def search_movies(
-    query: str, path_movies: Path, limit: int = 5
-) -> list[dict[str, Json]]:
+def id_key(movie: Movie) -> int:
+    """Return the stored integer id for sorting.
+
+    `parse_movie` guarantees the `id` field is an int (falling back to 0)
+    so we can rely on that invariant here and keep the function trivial.
+    """
+    return movie["id"]
+
+
+def search_movies(query: str, path_movies: Path, limit: int = 5) -> list[Movie]:
     """
     Search movies by normalized substring match (simple fallback for BM25).
     Returns up to `limit` matching movie dicts sorted by id.
     """
-    results: list[dict[str, Json]] = []
+    results: list[Movie] = []
     with path_movies.open("r", encoding="utf-8") as file:
         # json.load returns Any; cast it to the Json alias so static
         # type checkers don't treat `raw` as Any. We still validate the
@@ -113,24 +160,24 @@ def search_movies(
     data = cast(dict[str, Json], raw)
 
     normalized_query = normalize_text(query)
-    movies = data.get("movies")
-    if not isinstance(movies, list):
+    movies_raw = data.get("movies")
+    if not isinstance(movies_raw, list):
         return results
 
-    for item in movies:
-        # movie is expected to be a mapping from strings to JSON values; skip
-        # entries that are not mappings to keep runtime behaviour predictable
-        # and the type checker happy.
+    for item in movies_raw:
+        # Each list item should be a mapping representing a movie; parse and
+        # validate it into our `Movie` TypedDict. Skip entries that aren't
+        # mappings or fail validation.
         if not isinstance(item, dict):
             continue
 
-        movie = cast(dict[str, Json], item)
+        parsed = parse_movie(item)
+        if parsed is None:
+            continue
 
-        raw_title = movie.get("title")
-        title = raw_title if isinstance(raw_title, str) else ""
-        normalized_title = normalize_text(title)
-        if title and normalized_query and normalized_query in normalized_title:
-            results.append(movie)
+        normalized_title = normalize_text(parsed["title"])
+        if normalized_query and normalized_query in normalized_title:
+            results.append(parsed)
 
     results.sort(key=id_key)
     return results[:limit]
@@ -176,11 +223,8 @@ def main() -> None:
             results = search_movies(query, path_movies)
             print(f"Searching for: {query}")
             for idx, movie in enumerate(results, start=1):
-                title = movie.get("title")
-                if isinstance(title, str):
-                    print(f"{idx}. {title}")
-                else:
-                    print(f"{idx}. <no title>")
+                # `parse_movie` guarantees `title` is present and is a str.
+                print(f"{idx}. {movie['title']}")
         case _:
             parser.print_help()
 

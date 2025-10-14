@@ -100,7 +100,10 @@ def search_movies(
     """
     results: list[dict[str, Json]] = []
     with path_movies.open("r", encoding="utf-8") as file:
-        raw = json.load(file)
+        # json.load returns Any; cast it to the Json alias so static
+        # type checkers don't treat `raw` as Any. We still validate the
+        # structure at runtime below.
+        raw = cast(Json, json.load(file))
 
     # Be defensive about the structure returned from json.load; if it's not a
     # mapping we can't search and just return an empty list.

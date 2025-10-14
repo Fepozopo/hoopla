@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast
 import argparse
 import json
 import unicodedata
@@ -46,7 +48,7 @@ def normalize_text(
 
     # Build filtered result, skipping combining marks (M*) when stripping diacritics
     # and skipping punctuation (P*) when removing punctuation.
-    filtered_chars = []
+    filtered_chars: list[str] = []
     for ch in s:
         cat = unicodedata.category(ch)  # e.g. 'Ll', 'Mn', 'Pd', 'Po', etc.
         if strip_diacritics and cat.startswith("M"):
@@ -65,28 +67,63 @@ def normalize_text(
     return normalized
 
 
-def id_key(movie: dict[str, Any]) -> int:
-    try:
-        return int(movie.get("id", 0))
-    except (TypeError, ValueError):
-        return 0
+Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
+
+
+def id_key(movie: dict[str, Json]) -> int:
+    """Return an integer id for sorting; be defensive about the stored type.
+
+    The JSON schema may store the id as a number or string. Only convert when
+    it's a sensible type and fall back to 0 otherwise.
+    """
+    val = movie.get("id", 0)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        try:
+            return int(val)
+        except ValueError:
+            return 0
+    if isinstance(val, float):
+        # Convert floats by truncation; non-numeric objects are rejected above.
+        return int(val)
+    return 0
 
 
 def search_movies(
     query: str, path_movies: Path, limit: int = 5
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Json]]:
     """
     Search movies by normalized substring match (simple fallback for BM25).
     Returns up to `limit` matching movie dicts sorted by id.
     """
-    results: list[dict[str, Any]] = []
+    results: list[dict[str, Json]] = []
     with path_movies.open("r", encoding="utf-8") as file:
-        data: dict[str, Any] = json.load(file)
+        raw = json.load(file)
+
+    # Be defensive about the structure returned from json.load; if it's not a
+    # mapping we can't search and just return an empty list.
+    if not isinstance(raw, dict):
+        return results
+
+    data = cast(dict[str, Json], raw)
 
     normalized_query = normalize_text(query)
-    for movie in data.get("movies", []):
-        # movie is expected to be a mapping from strings to arbitrary JSON values
-        title = movie.get("title", "")
+    movies = data.get("movies")
+    if not isinstance(movies, list):
+        return results
+
+    for item in movies:
+        # movie is expected to be a mapping from strings to JSON values; skip
+        # entries that are not mappings to keep runtime behaviour predictable
+        # and the type checker happy.
+        if not isinstance(item, dict):
+            continue
+
+        movie = cast(dict[str, Json], item)
+
+        raw_title = movie.get("title")
+        title = raw_title if isinstance(raw_title, str) else ""
         normalized_title = normalize_text(title)
         if title and normalized_query and normalized_query in normalized_title:
             results.append(movie)
@@ -111,7 +148,11 @@ def main() -> None:
             results = search_movies(args.query, path_movies)
             print(f"Searching for: {args.query}")
             for idx, movie in enumerate(results, start=1):
-                print(f"{idx}. {movie.get('title', '<no title>')}")
+                title = movie.get("title")
+                if isinstance(title, str):
+                    print(f"{idx}. {title}")
+                else:
+                    print(f"{idx}. <no title>")
         case _:
             parser.print_help()
 

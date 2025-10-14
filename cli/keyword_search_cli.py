@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any
 import argparse
 import json
 import unicodedata
 
 
 def normalize_text(
-    text: Optional[str],
+    text: str | None,
     *,
     strip_diacritics: bool = True,
     remove_punctuation: bool = True,
@@ -65,7 +65,7 @@ def normalize_text(
     return normalized
 
 
-def id_key(movie: Dict[str, Any]) -> int:
+def id_key(movie: dict[str, Any]) -> int:
     try:
         return int(movie.get("id", 0))
     except (TypeError, ValueError):
@@ -74,14 +74,14 @@ def id_key(movie: Dict[str, Any]) -> int:
 
 def search_movies(
     query: str, path_movies: Path, limit: int = 5
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Search movies by normalized substring match (simple fallback for BM25).
     Returns up to `limit` matching movie dicts sorted by id.
     """
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     with path_movies.open("r", encoding="utf-8") as file:
-        data: Dict[str, Any] = json.load(file)
+        data: dict[str, Any] = json.load(file)
 
     normalized_query = normalize_text(query)
     for movie in data.get("movies", []):

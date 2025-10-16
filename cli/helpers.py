@@ -1,0 +1,177 @@
+from pathlib import Path
+from typing import TypeAlias, cast, TypedDict
+import json
+import unicodedata
+
+
+def normalize_text(
+    text: str | None,
+    *,
+    strip_diacritics: bool = True,
+    remove_punctuation: bool = True,
+) -> str:
+    """
+    Normalize a text string in a Unicode-aware way.
+
+    Parameters
+    - text: The input string. If falsy (None or empty), returns an empty string.
+    - strip_diacritics: If True, decompose Unicode characters (NFKD) and remove
+        combining marks (Unicode categories starting with 'M') to strip diacritics.
+    - remove_punctuation: If True, remove characters whose Unicode category starts
+        with 'P' (all punctuation characters).
+
+    Returns
+    - A normalized string: lowercased, with diacritics/punctuation removed according
+      to the flags, and with runs of whitespace collapsed to single spaces.
+
+    Examples
+    - normalize_text("Café — The Movie!") -> "cafe the movie"
+    - normalize_text("El Niño", strip_diacritics=False) -> "el niño"
+    """
+    if not text:
+        return ""
+
+    # Lowercase first to make comparisons case-insensitive
+    s = text.lower()
+
+    # Decompose characters so diacritics become separate combining characters
+    if strip_diacritics:
+        s = unicodedata.normalize("NFKD", s)
+    else:
+        # still normalize in a stable way but don't decompose for diacritic stripping
+        s = unicodedata.normalize("NFC", s)
+
+    # Build filtered result, skipping combining marks (M*) when stripping diacritics
+    # and skipping punctuation (P*) when removing punctuation.
+    filtered_chars: list[str] = []
+    for ch in s:
+        cat = unicodedata.category(ch)  # e.g. 'Ll', 'Mn', 'Pd', 'Po', etc.
+        if strip_diacritics and cat.startswith("M"):
+            # Skip combining marks (diacritics)
+            continue
+        if remove_punctuation and cat.startswith("P"):
+            # Skip punctuation
+            continue
+        filtered_chars.append(ch)
+
+    filtered = "".join(filtered_chars)
+
+    # Collapse any whitespace runs and trim
+    normalized = " ".join(filtered.split())
+
+    return normalized
+
+
+Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
+
+
+class Movie(TypedDict):
+    """A validated subset of the movie JSON structure used by this CLI.
+
+    We keep only the fields we need for searching and display. The
+    parsing function below coerces/normalizes values (for example
+    converting an id represented as a string into an int) and returns
+    None for entries that are missing required information (title).
+    """
+
+    id: int
+    title: str
+    description: str | None
+
+
+def parse_movie(raw: Json) -> Movie | None:
+    """Validate and coerce a single raw JSON mapping into a `Movie`.
+
+    Returns
+    - A `Movie` dict with normalized types when the entry is valid.
+    - `None` when the entry doesn't contain the minimal required data
+        (currently a string `title`).
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    raw_title = raw.get("title")
+    if not isinstance(raw_title, str) or not raw_title:
+        # Title is required for our search/display pipeline.
+        return None
+
+    # Normalise the id to an int with a sensible fallback.
+    raw_id = raw.get("id", 0)
+    if isinstance(raw_id, int):
+        movie_id = raw_id
+    elif isinstance(raw_id, float):
+        movie_id = int(raw_id)
+    elif isinstance(raw_id, str):
+        try:
+            movie_id = int(raw_id)
+        except ValueError:
+            try:
+                movie_id = int(float(raw_id))
+            except ValueError:
+                movie_id = 0
+    else:
+        movie_id = 0
+
+    raw_description = raw.get("description")
+    description = raw_description if isinstance(raw_description, str) else None
+
+    # Construct a value that already matches the `Movie` TypedDict so no
+    # cast from a generic mapping is necessary.
+    movie: Movie = {
+        "id": movie_id,
+        "title": raw_title,
+        "description": description,
+    }
+    return movie
+
+
+def id_key(movie: Movie) -> int:
+    """Return the stored integer id for sorting.
+
+    `parse_movie` guarantees the `id` field is an int (falling back to 0)
+    so we can rely on that invariant here and keep the function trivial.
+    """
+    return movie["id"]
+
+
+def search_movies(query: str, path_movies: Path, limit: int = 5) -> list[Movie]:
+    """
+    Search movies by normalized substring match (simple fallback for BM25).
+    Returns up to `limit` matching movie dicts sorted by id.
+    """
+    results: list[Movie] = []
+    with path_movies.open("r", encoding="utf-8") as file:
+        # json.load returns Any; cast it to the Json alias so static
+        # type checkers don't treat `raw` as Any. We still validate the
+        # structure at runtime below.
+        raw = cast(Json, json.load(file))
+
+    # Be defensive about the structure returned from json.load; if it's not a
+    # mapping we can't search and just return an empty list.
+    if not isinstance(raw, dict):
+        return results
+
+    data = cast(dict[str, Json], raw)
+
+    normalized_query = normalize_text(query)
+    movies_raw = data.get("movies")
+    if not isinstance(movies_raw, list):
+        return results
+
+    for item in movies_raw:
+        # Each list item should be a mapping representing a movie; parse and
+        # validate it into our `Movie` TypedDict. Skip entries that aren't
+        # mappings or fail validation.
+        if not isinstance(item, dict):
+            continue
+
+        parsed = parse_movie(item)
+        if parsed is None:
+            continue
+
+        normalized_title = normalize_text(parsed["title"])
+        if normalized_query and normalized_query in normalized_title:
+            results.append(parsed)
+
+    results.sort(key=id_key)
+    return results[:limit]

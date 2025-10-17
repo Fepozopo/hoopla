@@ -88,6 +88,16 @@ def tokenize_text(
     # Lowercase and split on whitespace, filtering out empty tokens
     tokens = [token for token in text.lower().split() if token]
 
+    # List of stop words to exclude from tokens
+    stop_words_path = Path(__file__).parent.parent / "data" / "stopwords.txt"
+    try:
+        with stop_words_path.open("r", encoding="utf-8") as f:
+            stop_words = {line.strip().lower() for line in f if line.strip()}
+    except FileNotFoundError:
+        stop_words = []
+
+    tokens = [token for token in tokens if token not in stop_words]
+
     return tokens
 
 

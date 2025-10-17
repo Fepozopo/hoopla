@@ -62,6 +62,35 @@ def normalize_text(
     return normalized
 
 
+def tokenize_text(
+    text: str | None,
+) -> list[str]:
+    """Split a text string into tokens based on whitespace.
+
+    This is a simple fallback tokenizer that doesn't use any NLP libraries.
+    It lowercases the input and splits on whitespace, returning a list of
+    non-empty tokens.
+
+    Parameters
+    - text: The input string to tokenize. If falsy (None or empty), returns
+        an empty list.
+
+    Returns
+    - A list of tokens (substrings) extracted from the input string.
+
+    Examples
+    - tokenize_text("The quick brown fox") -> ["the", "quick", "brown", "fox"]
+    - tokenize_text("  Hello,   world!  ") -> ["hello,", "world!"]
+    """
+    if not text:
+        return []
+
+    # Lowercase and split on whitespace, filtering out empty tokens
+    tokens = [token for token in text.lower().split() if token]
+
+    return tokens
+
+
 Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 
 
@@ -154,6 +183,7 @@ def search_movies(query: str, path_movies: Path, limit: int = 5) -> list[Movie]:
     data = cast(dict[str, Json], raw)
 
     normalized_query = normalize_text(query)
+    tokenized_query = tokenize_text(normalized_query)
     movies_raw = data.get("movies")
     if not isinstance(movies_raw, list):
         return results
@@ -170,7 +200,7 @@ def search_movies(query: str, path_movies: Path, limit: int = 5) -> list[Movie]:
             continue
 
         normalized_title = normalize_text(parsed["title"])
-        if normalized_query and normalized_query in normalized_title:
+        if any(token in normalized_title for token in tokenized_query):
             results.append(parsed)
 
     results.sort(key=id_key)

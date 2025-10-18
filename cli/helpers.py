@@ -2,6 +2,7 @@ from nltk.stem import PorterStemmer
 from pathlib import Path
 from typing import TypeAlias, cast, TypedDict
 import json
+import pickle
 import unicodedata
 
 
@@ -56,6 +57,27 @@ class InvertedIndex:
             description = movie.get("description")
             input = f"{title} {description}"
             self.__add_document(movie["id"], input)
+
+    def save(self) -> None:
+        """Persist the in-memory index and docmap to disk using pickle.
+
+        Files:
+        - cache/index.pkl   -> self.index
+        - cache/docmap.pkl  -> self.docmap
+
+        Creates the cache directory if it does not already exist.
+        """
+        cache_dir = Path("cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        index_path = cache_dir / "index.pkl"
+        docmap_path = cache_dir / "docmap.pkl"
+
+        with index_path.open("wb") as f:
+            pickle.dump(self.index, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        with docmap_path.open("wb") as f:
+            pickle.dump(self.docmap, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def normalize_text(

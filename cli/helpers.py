@@ -40,6 +40,15 @@ class InvertedIndex:
             if doc_id not in self.index[token]:
                 self.index[token].append(doc_id)
 
+    def get_documents(self, term: str) -> list[Movie]:
+        normalized_term = normalize_text(term)
+        token = tokenize_text(normalized_term)
+        if not token:
+            return []
+        token = token[0]
+        doc_ids = self.index.get(token, [])
+        return [self.docmap[doc_id] for doc_id in doc_ids if doc_id in self.docmap]
+
 
 def normalize_text(
     text: str | None,

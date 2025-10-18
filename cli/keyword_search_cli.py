@@ -6,7 +6,7 @@ import sys
 # so `from cli.helpers import ...` works when running the script directly.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from cli.helpers import search_movies
+from cli.helpers import build_inverted_index, search_movies
 from dataclasses import dataclass
 import argparse
 
@@ -53,6 +53,8 @@ def main() -> None:
             for idx, movie in enumerate(results, start=1):
                 # `parse_movie` guarantees `title` is present and is a str.
                 print(f"{idx}. {movie['title']}")
+        case "build":
+            build_inverted_index(path_movies)
         case _:
             parser.print_help()
 

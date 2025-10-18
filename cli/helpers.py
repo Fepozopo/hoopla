@@ -278,3 +278,54 @@ def search_movies(query: str, path_movies: Path, limit: int = 5) -> list[Movie]:
 
     results.sort(key=id_key)
     return results[:limit]
+
+
+def build_inverted_index(path_movies: Path) -> None:
+    """Build an inverted index from a movies JSON file and persist it.
+
+    The function reads the JSON at `path_movies`, parses and validates the
+    contained movie entries with `parse_movie`, builds an InvertedIndex,
+    saves it to disk using InvertedIndex.save(), and then prints the first
+    document id for the token 'merida' if any documents contain that token.
+    """
+    try:
+        with path_movies.open("r", encoding="utf-8") as f:
+            raw = cast(Json, json.load(f))
+    except FileNotFoundError:
+        print(f"Movies file not found: {path_movies}")
+        return
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse JSON from {path_movies}: {e}")
+        return
+
+    if not isinstance(raw, dict):
+        print(f"Unexpected JSON structure in {path_movies}: expected a mapping")
+        return
+
+    data = cast(dict[str, Json], raw)
+    movies_raw = data.get("movies")
+    if not isinstance(movies_raw, list):
+        print(f"No 'movies' list found in {path_movies}")
+        return
+
+    movies: list[Movie] = []
+    for item in movies_raw:
+        if not isinstance(item, dict):
+            continue
+        parsed = parse_movie(item)
+        if parsed is None:
+            continue
+        movies.append(parsed)
+
+    # Build the inverted index and persist it
+    index = InvertedIndex({}, {})
+    index.build(movies)
+    index.save()
+
+    # Query the built index for the token 'merida' and print the first id
+    docs_for_merida = index.get_documents("merida")
+    if docs_for_merida:
+        first_id = docs_for_merida[0]["id"]
+        print(f"First document id for token 'merida' = {first_id}")
+    else:
+        print("No documents found for token 'merida'")

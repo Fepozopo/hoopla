@@ -5,6 +5,42 @@ import json
 import unicodedata
 
 
+Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
+
+
+class Movie(TypedDict):
+    """A validated subset of the movie JSON structure used by this CLI.
+
+    We keep only the fields we need for searching and display. The
+    parsing function below coerces/normalizes values (for example
+    converting an id represented as a string into an int) and returns
+    None for entries that are missing required information (title).
+    """
+
+    id: int
+    title: str
+    description: str | None
+
+
+class InvertedIndex:
+    """A inverted index mapping tokens to lists of document ids."""
+
+    index: dict[str, list[int]]
+    docmap: dict[int, Movie]
+
+    def __init__(self, index: dict[str, list[int]], docmap: dict[int, Movie]) -> None:
+        self.index = index
+        self.docmap = docmap
+
+    def __add_document(self, doc_id: int, text: str | None) -> None:
+        tokens = tokenize_text(text)
+        for token in tokens:
+            if token not in self.index:
+                self.index[token] = []
+            if doc_id not in self.index[token]:
+                self.index[token].append(doc_id)
+
+
 def normalize_text(
     text: str | None,
     *,
@@ -91,11 +127,12 @@ def tokenize_text(
 
     # List of stop words to exclude from tokens
     stop_words_path = Path(__file__).parent.parent / "data" / "stopwords.txt"
+    stop_words: set[str]
     try:
         with stop_words_path.open("r", encoding="utf-8") as f:
             stop_words = {line.strip().lower() for line in f if line.strip()}
     except FileNotFoundError:
-        stop_words = []
+        stop_words = set()
     tokens = [token for token in tokens if token not in stop_words]
 
     # Reduce tokens to their stems using Porter Stemmer
@@ -103,23 +140,6 @@ def tokenize_text(
     tokens = [stemmer.stem(token) for token in tokens]
 
     return tokens
-
-
-Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
-
-
-class Movie(TypedDict):
-    """A validated subset of the movie JSON structure used by this CLI.
-
-    We keep only the fields we need for searching and display. The
-    parsing function below coerces/normalizes values (for example
-    converting an id represented as a string into an int) and returns
-    None for entries that are missing required information (title).
-    """
-
-    id: int
-    title: str
-    description: str | None
 
 
 def parse_movie(raw: Json) -> Movie | None:

@@ -49,6 +49,14 @@ class InvertedIndex:
         doc_ids = self.index.get(token, [])
         return [self.docmap[doc_id] for doc_id in doc_ids if doc_id in self.docmap]
 
+    def build(self, movies: list[Movie]) -> None:
+        for movie in movies:
+            self.docmap[movie["id"]] = movie
+            title = movie.get("title")
+            description = movie.get("description")
+            input = f"{title} {description}"
+            self.__add_document(movie["id"], input)
+
 
 def normalize_text(
     text: str | None,

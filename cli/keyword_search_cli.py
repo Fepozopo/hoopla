@@ -31,6 +31,7 @@ def main() -> None:
 
     search_parser = subparsers.add_parser("search", help="Search movies using BM25")
     _ = search_parser.add_argument("query", type=str, help="Search query")
+    _ = subparsers.add_parser("build", help="Build the inverted index")
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()

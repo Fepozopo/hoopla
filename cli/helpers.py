@@ -1,3 +1,4 @@
+from nltk.stem import PorterStemmer
 from pathlib import Path
 from typing import TypeAlias, cast, TypedDict
 import json
@@ -95,8 +96,11 @@ def tokenize_text(
             stop_words = {line.strip().lower() for line in f if line.strip()}
     except FileNotFoundError:
         stop_words = []
-
     tokens = [token for token in tokens if token not in stop_words]
+
+    # Reduce tokens to their stems using Porter Stemmer
+    stemmer = PorterStemmer()
+    tokens = [stemmer.stem(token) for token in tokens]
 
     return tokens
 

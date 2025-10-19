@@ -345,10 +345,37 @@ def build_inverted_index(path_movies: Path) -> None:
     index.build(movies)
     index.save()
 
-    # Query the built index for the token 'merida' and print the first id
-    docs_for_merida = index.get_documents("merida")
-    if docs_for_merida:
-        first_id = docs_for_merida[0]["id"]
-        print(f"First document id for token 'merida' = {first_id}")
-    else:
-        print("No documents found for token 'merida'")
+
+def search_inverted_index(query: str, limit: int = 5) -> list[Movie]:
+    """Search the persisted inverted index for movies matching the query.
+
+    Loads the inverted index and docmap from disk, tokenizes the query,
+    retrieves matching documents, and returns up to `limit` results
+    sorted by id.
+    """
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return []
+
+    normalized_query = normalize_text(query)
+    tokenized_query = tokenize_text(normalized_query)
+
+    results: list[Movie] = []
+    for token in tokenized_query:
+        docs = index.get_documents(token)
+        results.extend(docs)
+
+    # Remove duplicates while preserving order
+    seen_ids: set[int]
+    seen_ids = set()
+    unique_results: list[Movie] = []
+    for movie in results:
+        if movie["id"] not in seen_ids:
+            seen_ids.add(movie["id"])
+            unique_results.append(movie)
+
+    unique_results.sort(key=id_key)
+    return unique_results[:limit]

@@ -34,7 +34,8 @@ class InvertedIndex:
         self.docmap = docmap
 
     def __add_document(self, doc_id: int, text: str | None) -> None:
-        tokens = tokenize_text(text)
+        normalized = normalize_text(text)
+        tokens = tokenize_text(normalized)
         for token in tokens:
             if token not in self.index:
                 self.index[token] = []
@@ -199,6 +200,7 @@ def tokenize_text(
 
     # Reduce tokens to their stems using Porter Stemmer
     stemmer = PorterStemmer()
+    tokens: list[str]
     tokens = [stemmer.stem(token) for token in tokens]
 
     return tokens

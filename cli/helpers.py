@@ -79,6 +79,29 @@ class InvertedIndex:
         with docmap_path.open("wb") as f:
             pickle.dump(self.docmap, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+    def load(self) -> None:
+        """Load the inverted index and docmap from disk using pickle.
+
+        Files:
+        - cache/index.pkl   -> self.index
+        - cache/docmap.pkl  -> self.docmap
+        """
+        cache_dir = Path("cache")
+        index_path = cache_dir / "index.pkl"
+        docmap_path = cache_dir / "docmap.pkl"
+
+        # Raise FileNotFoundError if files do not exist
+        if not index_path.exists() or not docmap_path.exists():
+            raise FileNotFoundError(
+                "Index or docmap file not found in cache directory."
+            )
+
+        with index_path.open("rb") as f:
+            self.index = pickle.load(f)
+
+        with docmap_path.open("rb") as f:
+            self.docmap = pickle.load(f)
+
 
 def normalize_text(
     text: str | None,

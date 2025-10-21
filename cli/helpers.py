@@ -1,3 +1,4 @@
+from collections import Counter
 from nltk.stem import PorterStemmer
 from pathlib import Path
 from typing import TypeAlias, cast, TypedDict
@@ -28,19 +29,29 @@ class InvertedIndex:
 
     index: dict[str, list[int]]
     docmap: dict[int, Movie]
+    term_frequencies: dict[int, Counter[str]]
 
     def __init__(self, index: dict[str, list[int]], docmap: dict[int, Movie]) -> None:
         self.index = index
         self.docmap = docmap
+        self.term_frequencies = {}
 
     def __add_document(self, doc_id: int, text: str | None) -> None:
         normalized = normalize_text(text)
         tokens = tokenize_text(normalized)
+
+        # Ensure a Counter exists for this document's term frequencies
+        if doc_id not in self.term_frequencies:
+            self.term_frequencies[doc_id] = Counter()
+        tf = self.term_frequencies[doc_id]
+
         for token in tokens:
             if token not in self.index:
                 self.index[token] = []
             if doc_id not in self.index[token]:
                 self.index[token].append(doc_id)
+            # Increment the term frequency for this token in this document
+            tf[token] += 1
 
     def get_documents(self, term: str) -> list[Movie]:
         normalized_term = normalize_text(term)
@@ -60,11 +71,12 @@ class InvertedIndex:
             self.__add_document(movie["id"], input)
 
     def save(self) -> None:
-        """Persist the in-memory index and docmap to disk using pickle.
+        """Persist the in-memory index, docmap, and term_frequencies to disk using pickle.
 
         Files:
         - cache/index.pkl   -> self.index
         - cache/docmap.pkl  -> self.docmap
+        - cache/term_frequencies.pkl -> self.term_frequencies
 
         Creates the cache directory if it does not already exist.
         """
@@ -73,6 +85,7 @@ class InvertedIndex:
 
         index_path = cache_dir / "index.pkl"
         docmap_path = cache_dir / "docmap.pkl"
+        term_frequencies_path = cache_dir / "term_frequencies.pkl"
 
         with index_path.open("wb") as f:
             pickle.dump(self.index, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -80,19 +93,28 @@ class InvertedIndex:
         with docmap_path.open("wb") as f:
             pickle.dump(self.docmap, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+        with term_frequencies_path.open("wb") as f:
+            pickle.dump(self.term_frequencies, f, protocol=pickle.HIGHEST_PROTOCOL)
+
     def load(self) -> None:
-        """Load the inverted index and docmap from disk using pickle.
+        """Load the inverted index, docmap, and term_frequencies from disk using pickle.
 
         Files:
         - cache/index.pkl   -> self.index
         - cache/docmap.pkl  -> self.docmap
+        - cache/term_frequencies.pkl -> self.term_frequencies
         """
         cache_dir = Path("cache")
         index_path = cache_dir / "index.pkl"
         docmap_path = cache_dir / "docmap.pkl"
+        term_frequencies_path = cache_dir / "term_frequencies.pkl"
 
         # Raise FileNotFoundError if files do not exist
-        if not index_path.exists() or not docmap_path.exists():
+        if (
+            not index_path.exists()
+            or not docmap_path.exists()
+            or not term_frequencies_path.exists()
+        ):
             raise FileNotFoundError(
                 "Index or docmap file not found in cache directory."
             )
@@ -102,6 +124,34 @@ class InvertedIndex:
 
         with docmap_path.open("rb") as f:
             self.docmap = pickle.load(f)
+
+        with term_frequencies_path.open("rb") as f:
+            self.term_frequencies = pickle.load(f)
+
+    def get_tf(self, doc_id: int, term: str) -> int:
+        """Return the number of times `term` appears in the document with id `doc_id`.
+
+        The `term` is normalized and tokenized. We expect the tokenization to
+        produce exactly one token; if it produces more than one token an
+        exception is raised. If the document or term is not present, returns 0.
+        """
+        # Normalize and tokenize the provided term; expect exactly one token
+        normalized = normalize_text(term)
+        tokens = tokenize_text(normalized)
+
+        if not tokens:
+            return 0
+        if len(tokens) > 1:
+            raise ValueError("term must tokenize to a single token")
+
+        token = tokens[0]
+
+        # Look up term frequencies for the document
+        tf_counter = self.term_frequencies.get(doc_id)
+        if not tf_counter:
+            return 0
+
+        return tf_counter.get(token, 0)
 
 
 def normalize_text(
@@ -381,3 +431,29 @@ def search_inverted_index(query: str, limit: int = 5) -> list[Movie]:
 
     unique_results.sort(key=id_key)
     return unique_results[:limit]
+
+
+def get_term_frequency(doc_id: int, term: str) -> int:
+    """Retrieve the term frequency of `term` in the document with id `doc_id`.
+
+    Loads the inverted index from disk and uses InvertedIndex.get_tf()
+    to retrieve the term frequency.
+
+    Returns
+    - The term frequency as an integer. If the document or term is not
+      found, returns 0.
+    """
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return 0
+
+    try:
+        tf = index.get_tf(doc_id, term)
+    except ValueError as e:
+        print(f"Error retrieving term frequency: {e}")
+        return 0
+
+    return tf

@@ -6,7 +6,7 @@ import sys
 # so `from cli.helpers import ...` works when running the script directly.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from cli.helpers import build_inverted_index, search_inverted_index, search_movies
+from cli.helpers import build_inverted_index, search_inverted_index, get_term_frequency
 from dataclasses import dataclass
 import argparse
 
@@ -30,8 +30,15 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     search_parser = subparsers.add_parser("search", help="Search movies using BM25")
+    tf_parser = subparsers.add_parser(
+        "tf", help="Display term frequencies for a given term"
+    )
     _ = search_parser.add_argument("query", type=str, help="Search query")
     _ = subparsers.add_parser("build", help="Build the inverted index")
+    _ = tf_parser.add_argument(
+        "id", type=int, help="Movie ID to get term frequency for"
+    )
+    _ = tf_parser.add_argument("term", type=str, help="Term to get frequencies for")
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -56,6 +63,14 @@ def main() -> None:
                 print(f"{idx}. {movie['title']}")
         case "build":
             build_inverted_index(path_movies)
+        case "tf":
+            movie_id = getattr(args, "id", None)
+            term = getattr(args, "term", None)
+            if not isinstance(movie_id, int) or not isinstance(term, str):
+                parser.error("the 'tf' command requires both id and term arguments")
+
+            tf = get_term_frequency(movie_id, term)
+            print(f"Term Frequency of '{term}' in movie ID {movie_id}: {tf}")
         case _:
             parser.print_help()
 

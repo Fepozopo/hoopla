@@ -457,3 +457,41 @@ def get_term_frequency(doc_id: int, term: str) -> int:
         return 0
 
     return tf
+
+
+def get_inverse_document_frequency(term: str) -> float:
+    """Retrieve the inverse document frequency (IDF) of `term` in the corpus.
+
+    Loads the inverted index from disk and calculates the IDF using the formula:
+    IDF(term) = log(Total number of documents / Number of documents containing term)
+
+    Returns
+    - The IDF as a float. If the term is not found, returns 0.0.
+    """
+    import math
+
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return 0.0
+
+    normalized_term = normalize_text(term)
+    tokens = tokenize_text(normalized_term)
+
+    if not tokens:
+        return 0.0
+    if len(tokens) > 1:
+        print("Error: term must tokenize to a single token")
+        return 0.0
+
+    token = tokens[0]
+    total_docs = len(index.docmap) + 1
+    docs_with_term = len(index.index.get(token, [])) + 1
+
+    if docs_with_term == 0:
+        return 0.0
+
+    idf = math.log(total_docs / docs_with_term)
+    return idf

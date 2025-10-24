@@ -48,6 +48,11 @@ def main() -> None:
         "idf", help="Display inverse document frequencies for a given term"
     )
     _ = idf_parser.add_argument("term", type=str, help="Term to get IDF for")
+    tfidf_parser = subparsers.add_parser(
+        "tfidf", help="Display TF-IDF scores for a given term"
+    )
+    _ = tfidf_parser.add_argument("id", type=int, help="Movie ID to get TF-IDF for")
+    _ = tfidf_parser.add_argument("term", type=str, help="Term to get TF-IDF for")
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -87,6 +92,17 @@ def main() -> None:
 
             idf = get_inverse_document_frequency(term)
             print(f"Inverse Document Frequency of '{term}': {idf:.2f}")
+        case "tfidf":
+            movie_id = getattr(args, "id", None)
+            term = getattr(args, "term", None)
+            if not isinstance(movie_id, int) or not isinstance(term, str):
+                parser.error("the 'tfidf' command requires both id and term arguments")
+
+            tf = get_term_frequency(movie_id, term)
+            idf = get_inverse_document_frequency(term)
+            tfidf = tf * idf
+
+            print(f"TF-IDF of '{term}' in movie ID {movie_id}: {tfidf:.2f}")
         case _:
             parser.print_help()
 

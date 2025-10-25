@@ -9,6 +9,8 @@ import unicodedata
 
 Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 
+BM25_K1 = 1.5
+
 
 class Movie(TypedDict):
     """A validated subset of the movie JSON structure used by this CLI.
@@ -182,6 +184,22 @@ class InvertedIndex:
 
         idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
         return idf
+
+    def get_bm25_tf(self, doc_id: int, term: str, k1: float = BM25_K1) -> float:
+        """Calculate the BM25 term frequency (TF) for `term` in document `doc_id`.
+
+        Uses the formula:
+        TF(term, doc) = (f * (k1 + 1)) / (f + k1)
+        where f is the raw term frequency in the document.
+
+        Returns 0.0 if the term is not found in the document.
+        """
+        f = self.get_tf(doc_id, term)
+        if f == 0:
+            return 0.0
+
+        tf = (f * (k1 + 1)) / (f + k1)
+        return tf
 
 
 def normalize_text(

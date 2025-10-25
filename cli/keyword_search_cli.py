@@ -7,7 +7,9 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from cli.helpers import (
+    BM25_K1,
     bm25_idf_command,
+    bm25_tf_command,
     build_inverted_index,
     search_inverted_index,
     get_term_frequency,
@@ -59,6 +61,14 @@ def main() -> None:
     )
     bm25_idf_parser.add_argument(
         "term", type=str, help="Term to get BM25 IDF score for"
+    )
+    bm25_tf_parser = subparsers.add_parser(
+        "bm25tf", help="Get BM25 TF score for a given document ID and term"
+    )
+    bm25_tf_parser.add_argument("doc_id", type=int, help="Document ID")
+    bm25_tf_parser.add_argument("term", type=str, help="Term to get BM25 TF score for")
+    bm25_tf_parser.add_argument(
+        "k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter"
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -117,6 +127,15 @@ def main() -> None:
 
             idf = bm25_idf_command(term)
             print(f"BM25 IDF of '{term}': {idf:.2f}")
+        case "bm25tf":
+            doc_id = getattr(args, "doc_id", None)
+            term = getattr(args, "term", None)
+            k1 = getattr(args, "k1", BM25_K1)
+            if not isinstance(doc_id, int) or not isinstance(term, str):
+                parser.error("the 'bm25tf' command requires doc_id and term arguments")
+
+            tf = bm25_tf_command(doc_id, term, k1)
+            print(f"BM25 TF score of '{term}' in document '{doc_id}': {tf:.2f}")
         case _:
             parser.print_help()
 

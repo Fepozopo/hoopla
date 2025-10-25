@@ -568,3 +568,28 @@ def bm25_idf_command(term: str) -> float:
         return 0.0
 
     return idf
+
+
+def bm25_tf_command(doc_id: int, term: str, k1: float = BM25_K1) -> float:
+    """Retrieve the BM25 term frequency (TF) of `term` in the document with id `doc_id`.
+
+    Loads the inverted index from disk and uses InvertedIndex.get_bm25_tf()
+    to calculate the BM25 TF.
+
+    Returns
+    - The BM25 TF as a float. If the document or term is not found, returns 0.0.
+    """
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return 0.0
+
+    try:
+        tf = index.get_bm25_tf(doc_id, term, k1)
+    except ValueError as e:
+        print(f"Error retrieving BM25 TF: {e}")
+        return 0.0
+
+    return tf

@@ -7,9 +7,10 @@ import pickle
 import unicodedata
 
 
-Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
-
 BM25_K1 = 1.5
+BM25_B = 0.75
+
+Json: TypeAlias = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 
 
 class Movie(TypedDict):
@@ -32,15 +33,19 @@ class InvertedIndex:
     index: dict[str, list[int]]
     docmap: dict[int, Movie]
     term_frequencies: dict[int, Counter[str]]
+    doc_lengths: dict[int, int]
 
     def __init__(self, index: dict[str, list[int]], docmap: dict[int, Movie]) -> None:
         self.index = index
         self.docmap = docmap
         self.term_frequencies = {}
+        self.doc_lengths = {}
 
     def __add_document(self, doc_id: int, text: str | None) -> None:
         normalized = normalize_text(text)
         tokens = tokenize_text(normalized)
+
+        self.doc_lengths[doc_id] = len(tokens)
 
         # Ensure a Counter exists for this document's term frequencies
         if doc_id not in self.term_frequencies:
@@ -64,6 +69,12 @@ class InvertedIndex:
         doc_ids = self.index.get(token, [])
         return [self.docmap[doc_id] for doc_id in doc_ids if doc_id in self.docmap]
 
+    def __get_avg_doc_length(self) -> float:
+        if not self.doc_lengths:
+            return 0.0
+        total_length = sum(self.doc_lengths.values())
+        return total_length / len(self.doc_lengths)
+
     def build(self, movies: list[Movie]) -> None:
         for movie in movies:
             self.docmap[movie["id"]] = movie
@@ -73,12 +84,13 @@ class InvertedIndex:
             self.__add_document(movie["id"], input)
 
     def save(self) -> None:
-        """Persist the in-memory index, docmap, and term_frequencies to disk using pickle.
+        """Persist the in-memory index, docmap, term_frequencies, and doc_lengths to disk using pickle.
 
         Files:
         - cache/index.pkl   -> self.index
         - cache/docmap.pkl  -> self.docmap
         - cache/term_frequencies.pkl -> self.term_frequencies
+        - cache/doc_lengths.pkl -> self.doc_lengths
 
         Creates the cache directory if it does not already exist.
         """
@@ -88,6 +100,7 @@ class InvertedIndex:
         index_path = cache_dir / "index.pkl"
         docmap_path = cache_dir / "docmap.pkl"
         term_frequencies_path = cache_dir / "term_frequencies.pkl"
+        doc_lengths_path = cache_dir / "doc_lengths.pkl"
 
         with index_path.open("wb") as f:
             pickle.dump(self.index, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -98,27 +111,33 @@ class InvertedIndex:
         with term_frequencies_path.open("wb") as f:
             pickle.dump(self.term_frequencies, f, protocol=pickle.HIGHEST_PROTOCOL)
 
+        with doc_lengths_path.open("wb") as f:
+            pickle.dump(self.doc_lengths, f, protocol=pickle.HIGHEST_PROTOCOL)
+
     def load(self) -> None:
-        """Load the inverted index, docmap, and term_frequencies from disk using pickle.
+        """Load the inverted index, docmap, term_frequencies, and doc_lengths from disk using pickle.
 
         Files:
         - cache/index.pkl   -> self.index
         - cache/docmap.pkl  -> self.docmap
         - cache/term_frequencies.pkl -> self.term_frequencies
+        - cache/doc_lengths.pkl -> self.doc_lengths
         """
         cache_dir = Path("cache")
         index_path = cache_dir / "index.pkl"
         docmap_path = cache_dir / "docmap.pkl"
         term_frequencies_path = cache_dir / "term_frequencies.pkl"
+        doc_lengths_path = cache_dir / "doc_lengths.pkl"
 
         # Raise FileNotFoundError if files do not exist
         if (
             not index_path.exists()
             or not docmap_path.exists()
             or not term_frequencies_path.exists()
+            or not doc_lengths_path.exists()
         ):
             raise FileNotFoundError(
-                "Index or docmap file not found in cache directory."
+                "Index, docmap, term_frequencies, or doc_lengths file not found in cache directory."
             )
 
         with index_path.open("rb") as f:
@@ -129,6 +148,9 @@ class InvertedIndex:
 
         with term_frequencies_path.open("rb") as f:
             self.term_frequencies = pickle.load(f)
+
+        with doc_lengths_path.open("rb") as f:
+            self.doc_lengths = pickle.load(f)
 
     def get_tf(self, doc_id: int, term: str) -> int:
         """Return the number of times `term` appears in the document with id `doc_id`.
@@ -185,21 +207,25 @@ class InvertedIndex:
         idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
         return idf
 
-    def get_bm25_tf(self, doc_id: int, term: str, k1: float = BM25_K1) -> float:
+    def get_bm25_tf(
+        self, doc_id: int, term: str, k1: float = BM25_K1, b: float = BM25_B
+    ) -> float:
         """Calculate the BM25 term frequency (TF) for `term` in document `doc_id`.
 
         Uses the formula:
-        TF(term, doc) = (f * (k1 + 1)) / (f + k1)
+        TF(term, doc) = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl)))
         where f is the raw term frequency in the document.
 
         Returns 0.0 if the term is not found in the document.
         """
-        f = self.get_tf(doc_id, term)
-        if f == 0:
+        tf = self.get_tf(doc_id, term)
+        if tf == 0:
             return 0.0
 
-        tf = (f * (k1 + 1)) / (f + k1)
-        return tf
+        dl = self.doc_lengths.get(doc_id, 0)
+        avgdl = self.__get_avg_doc_length()
+        bmtf = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl)))
+        return bmtf
 
 
 def normalize_text(
@@ -570,7 +596,9 @@ def bm25_idf_command(term: str) -> float:
     return idf
 
 
-def bm25_tf_command(doc_id: int, term: str, k1: float = BM25_K1) -> float:
+def bm25_tf_command(
+    doc_id: int, term: str, k1: float = BM25_K1, b: float = BM25_B
+) -> float:
     """Retrieve the BM25 term frequency (TF) of `term` in the document with id `doc_id`.
 
     Loads the inverted index from disk and uses InvertedIndex.get_bm25_tf()

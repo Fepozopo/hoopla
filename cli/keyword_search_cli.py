@@ -7,6 +7,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from cli.helpers import (
+    BM25_B,
     BM25_K1,
     bm25_idf_command,
     bm25_tf_command,
@@ -70,6 +71,9 @@ def main() -> None:
     bm25_tf_parser.add_argument(
         "k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter"
     )
+    bm25_tf_parser.add_argument(
+        "b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 b parameter"
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -131,10 +135,11 @@ def main() -> None:
             doc_id = getattr(args, "doc_id", None)
             term = getattr(args, "term", None)
             k1 = getattr(args, "k1", BM25_K1)
+            b = getattr(args, "b", BM25_B)
             if not isinstance(doc_id, int) or not isinstance(term, str):
                 parser.error("the 'bm25tf' command requires doc_id and term arguments")
 
-            tf = bm25_tf_command(doc_id, term, k1)
+            tf = bm25_tf_command(doc_id, term, k1, b)
             print(f"BM25 TF score of '{term}' in document '{doc_id}': {tf:.2f}")
         case _:
             parser.print_help()

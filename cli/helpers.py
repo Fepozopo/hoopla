@@ -153,6 +153,36 @@ class InvertedIndex:
 
         return tf_counter.get(token, 0)
 
+    def get_bm25_idf(self, term: str) -> float:
+        """Calculate the BM25 inverse document frequency (IDF) for `term`.
+
+        Uses the formula:
+        IDF(term) = log((N - df + 0.5) / (df + 0.5) + 1)
+        where N is the total number of documents and n is the number of documents
+        containing the term.
+
+        Returns 0.0 if the term is not found in any document.
+        """
+        import math
+
+        normalized_term = normalize_text(term)
+        tokens = tokenize_text(normalized_term)
+
+        if not tokens:
+            return 0.0
+        if len(tokens) > 1:
+            raise ValueError("term must tokenize to a single token")
+
+        token = tokens[0]
+        N = len(self.docmap)
+        df = len(self.index.get(token, []))
+
+        if df == 0:
+            return 0.0
+
+        idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
+        return idf
+
 
 def normalize_text(
     text: str | None,
@@ -494,4 +524,29 @@ def get_inverse_document_frequency(term: str) -> float:
         return 0.0
 
     idf = math.log(total_docs / docs_with_term)
+    return idf
+
+
+def bm25_idf_command(term: str) -> float:
+    """Retrieve the BM25 inverse document frequency (IDF) of `term` in the corpus.
+
+    Loads the inverted index from disk and uses InvertedIndex.get_bm25_idf()
+    to calculate the BM25 IDF.
+
+    Returns
+    - The BM25 IDF as a float. If the term is not found, returns 0.0.
+    """
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return 0.0
+
+    try:
+        idf = index.get_bm25_idf(term)
+    except ValueError as e:
+        print(f"Error retrieving BM25 IDF: {e}")
+        return 0.0
+
     return idf

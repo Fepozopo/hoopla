@@ -7,6 +7,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from cli.helpers import (
+    bm25_idf_command,
     build_inverted_index,
     search_inverted_index,
     get_term_frequency,
@@ -53,6 +54,12 @@ def main() -> None:
     )
     _ = tfidf_parser.add_argument("id", type=int, help="Movie ID to get TF-IDF for")
     _ = tfidf_parser.add_argument("term", type=str, help="Term to get TF-IDF for")
+    bm25_idf_parser = subparsers.add_parser(
+        "bm25idf", help="Get BM25 IDF score for a given term"
+    )
+    bm25_idf_parser.add_argument(
+        "term", type=str, help="Term to get BM25 IDF score for"
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -103,6 +110,13 @@ def main() -> None:
             tfidf = tf * idf
 
             print(f"TF-IDF of '{term}' in movie ID {movie_id}: {tfidf:.2f}")
+        case "bm25idf":
+            term = getattr(args, "term", None)
+            if not isinstance(term, str):
+                parser.error("the 'bm25idf' command requires a term argument")
+
+            idf = bm25_idf_command(term)
+            print(f"BM25 IDF of '{term}': {idf:.2f}")
         case _:
             parser.print_help()
 

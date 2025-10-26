@@ -10,6 +10,7 @@ from cli.helpers import (
     BM25_B,
     BM25_K1,
     bm25_idf_command,
+    bm25_search_command,
     bm25_tf_command,
     build_inverted_index,
     search_inverted_index,
@@ -73,6 +74,13 @@ def main() -> None:
     )
     bm25_tf_parser.add_argument(
         "b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 b parameter"
+    )
+    bm25search_parser = subparsers.add_parser(
+        "bm25search", help="Search movies using full BM25 scoring"
+    )
+    bm25search_parser.add_argument("query", type=str, help="Search query")
+    bm25search_parser.add_argument(
+        "limit", type=int, nargs="?", default=5, help="Number of results to return"
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -141,6 +149,17 @@ def main() -> None:
 
             tf = bm25_tf_command(doc_id, term, k1, b)
             print(f"BM25 TF score of '{term}' in document '{doc_id}': {tf:.2f}")
+        case "bm25search":
+            query = getattr(args, "query", None)
+            limit = getattr(args, "limit", 5)
+            if not isinstance(query, str):
+                parser.error("the 'bm25search' command requires a query argument")
+
+            results, scores = bm25_search_command(query, limit)
+            print(f"BM25 Searching for: {query}")
+            for idx, movie in enumerate(results, start=1):
+                score = scores.get(movie["id"], 0.0)
+                print(f"{idx}. ({movie['id']}) {movie['title']} - Score: {score:.2f}")
         case _:
             parser.print_help()
 

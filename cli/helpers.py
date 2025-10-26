@@ -227,6 +227,56 @@ class InvertedIndex:
         bmtf = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (dl / avgdl)))
         return bmtf
 
+    def bm25(self, doc_id: int, term: str) -> float:
+        """Calculate the BM25 score for `term` in document `doc_id`.
+
+        Uses the formula:
+        BM25(term, doc) = IDF(term) * TF(term, doc)
+
+        Returns 0.0 if the term is not found in the document.
+        """
+        idf = self.get_bm25_idf(term)
+        tf = self.get_bm25_tf(doc_id, term)
+        return idf * tf
+
+    def bm25_search(
+        self, query: str, limit: int
+    ) -> tuple[list[Movie], dict[int, float]]:
+        """Search the inverted index using BM25 scoring for the given query.
+
+        Returns:
+          - A list of up to `limit` matching movie dicts sorted by BM25 score.
+          - A dict mapping document ids to their BM25 scores (only top results).
+        """
+        normalized_query = normalize_text(query)
+        tokenized_query = tokenize_text(normalized_query)
+
+        if not tokenized_query:
+            return ([], {})
+
+        scores: dict[int, float] = {}
+
+        for token in tokenized_query:
+            doc_ids = self.index.get(token, [])
+            for doc_id in doc_ids:
+                score = self.bm25(doc_id, token)
+                if score == 0.0:
+                    continue
+                scores[doc_id] = scores.get(doc_id, 0.0) + score
+
+        # Sort documents by score in descending order and get top `limit` as (doc_id, score) pairs
+        top_pairs = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+
+        # Map Movies with their scores (preserving ordering)
+        results: list[Movie] = []
+        top_scores: dict[int, float] = {}
+        for doc_id, score in top_pairs:
+            if doc_id in self.docmap:
+                results.append(self.docmap[doc_id])
+                top_scores[doc_id] = score
+
+        return (results, top_scores)
+
 
 def normalize_text(
     text: str | None,
@@ -621,3 +671,27 @@ def bm25_tf_command(
         return 0.0
 
     return tf
+
+
+def bm25_search_command(
+    query: str, limit: int = 5
+) -> tuple[list[Movie], dict[int, float]]:
+    """Search the inverted index using BM25 scoring for the given query.
+
+    Loads the inverted index from disk and uses InvertedIndex.bm25_search()
+    to perform the search.
+
+    Returns
+    - A tuple containing:
+      - A list of up to `limit` matching movie dicts sorted by BM25 score.
+      - A dict mapping document ids to their BM25 scores (only top results).
+    """
+    index = InvertedIndex({}, {})
+    try:
+        index.load()
+    except FileNotFoundError:
+        print("Inverted index not found in cache. Please build it first.")
+        return ([], {})
+
+    results, scores = index.bm25_search(query, limit)
+    return (results, scores)

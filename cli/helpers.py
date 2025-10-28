@@ -665,7 +665,7 @@ def bm25_tf_command(
         return 0.0
 
     try:
-        tf = index.get_bm25_tf(doc_id, term, k1)
+        tf = index.get_bm25_tf(doc_id, term, k1, b)
     except ValueError as e:
         print(f"Error retrieving BM25 TF: {e}")
         return 0.0

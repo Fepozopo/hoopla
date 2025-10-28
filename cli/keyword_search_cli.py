@@ -32,7 +32,6 @@ class CLIArgs:
     """
 
     command: str | None = None
-    query: str | None = None
 
 
 def main() -> None:
@@ -61,25 +60,27 @@ def main() -> None:
     bm25_idf_parser = subparsers.add_parser(
         "bm25idf", help="Get BM25 IDF score for a given term"
     )
-    bm25_idf_parser.add_argument(
+    _ = bm25_idf_parser.add_argument(
         "term", type=str, help="Term to get BM25 IDF score for"
     )
     bm25_tf_parser = subparsers.add_parser(
         "bm25tf", help="Get BM25 TF score for a given document ID and term"
     )
-    bm25_tf_parser.add_argument("doc_id", type=int, help="Document ID")
-    bm25_tf_parser.add_argument("term", type=str, help="Term to get BM25 TF score for")
-    bm25_tf_parser.add_argument(
+    _ = bm25_tf_parser.add_argument("doc_id", type=int, help="Document ID")
+    _ = bm25_tf_parser.add_argument(
+        "term", type=str, help="Term to get BM25 TF score for"
+    )
+    _ = bm25_tf_parser.add_argument(
         "k1", type=float, nargs="?", default=BM25_K1, help="Tunable BM25 K1 parameter"
     )
-    bm25_tf_parser.add_argument(
+    _ = bm25_tf_parser.add_argument(
         "b", type=float, nargs="?", default=BM25_B, help="Tunable BM25 b parameter"
     )
     bm25search_parser = subparsers.add_parser(
         "bm25search", help="Search movies using full BM25 scoring"
     )
-    bm25search_parser.add_argument("query", type=str, help="Search query")
-    bm25search_parser.add_argument(
+    _ = bm25search_parser.add_argument("query", type=str, help="Search query")
+    _ = bm25search_parser.add_argument(
         "limit", type=int, nargs="?", default=5, help="Number of results to return"
     )
 
@@ -92,10 +93,7 @@ def main() -> None:
 
     match args.command:
         case "search":
-            # argparse will populate `query` when the `search` subparser is
-            # used, but the type checker doesn't know that. Validate at
-            # runtime so static analysis can reason about the type safely.
-            query = args.query
+            query = getattr(args, "query", None)
             if not isinstance(query, str):
                 parser.error("the 'search' command requires a query argument")
 

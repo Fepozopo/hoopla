@@ -24,6 +24,10 @@ def main():
     _ = subparsers.add_parser(
         "verify_embeddings", help="Verify the embeddings against cached values"
     )
+    embedquery_parser = subparsers.add_parser(
+        "embed_query", help="Generate embedding for a search query"
+    )
+    _ = embedquery_parser.add_argument("query", type=str, help="Search query to embed")
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -38,6 +42,9 @@ def main():
             embed_text(text)
         case "verify_embeddings":
             verify_embeddings()
+        case "embed_query":
+            query = getattr(args, "query")
+            embed_text(query)
         case _:
             parser.print_help()
 

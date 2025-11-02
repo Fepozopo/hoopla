@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 import argparse
 
 from cli.keyword_search_cli import CLIArgs
-from cli.lib.semantic_search import embed_text, verify_model
+from cli.lib.semantic_search import embed_text, verify_embeddings, verify_model
 
 
 def main():
@@ -21,6 +21,9 @@ def main():
         "embed_text", help="Generate embedding for a given text"
     )
     _ = embed_text_parser.add_argument("text", type=str, help="Text to embed")
+    _ = subparsers.add_parser(
+        "verify_embeddings", help="Verify the embeddings against cached values"
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -33,6 +36,8 @@ def main():
         case "embed_text":
             text = getattr(args, "text")
             embed_text(text)
+        case "verify_embeddings":
+            verify_embeddings()
         case _:
             parser.print_help()
 

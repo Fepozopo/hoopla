@@ -1,11 +1,11 @@
-from collections import Counter
-from nltk.stem import PorterStemmer
-from pathlib import Path
-from typing import TypeAlias, cast, TypedDict
 import json
 import pickle
 import unicodedata
+from collections import Counter
+from pathlib import Path
+from typing import TypeAlias, TypedDict, cast
 
+from nltk.stem import PorterStemmer
 
 BM25_K1 = 1.5
 BM25_B = 0.75
@@ -695,3 +695,40 @@ def bm25_search_command(
 
     results, scores = index.bm25_search(query, limit)
     return (results, scores)
+
+
+def load_movies(path_movies: Path) -> list[Movie]:
+    """Load and parse movies from a JSON file at `path_movies`.
+
+    Returns a list of validated `Movie` dicts.
+    """
+    movies: list[Movie] = []
+    try:
+        with path_movies.open("r", encoding="utf-8") as f:
+            raw = cast(Json, json.load(f))
+    except FileNotFoundError:
+        print(f"Movies file not found: {path_movies}")
+        return movies
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse JSON from {path_movies}: {e}")
+        return movies
+
+    if not isinstance(raw, dict):
+        print(f"Unexpected JSON structure in {path_movies}: expected a mapping")
+        return movies
+
+    data = cast(dict[str, Json], raw)
+    movies_raw = data.get("movies")
+    if not isinstance(movies_raw, list):
+        print(f"No 'movies' list found in {path_movies}")
+        return movies
+
+    for item in movies_raw:
+        if not isinstance(item, dict):
+            continue
+        parsed = parse_movie(item)
+        if parsed is None:
+            continue
+        movies.append(parsed)
+
+    return movies

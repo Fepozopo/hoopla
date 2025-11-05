@@ -62,7 +62,7 @@ class SemanticSearch:
         assert isinstance(self.embeddings, np.ndarray)
         return self.embeddings
 
-    def search(self, query: str, limit: int):
+    def search(self, query: str, limit: int) -> list[tuple[Movie, float]]:
         if self.embeddings is None or self.documents is None:
             raise RuntimeError(
                 "No embeddings loaded. Call `load_or_create_embeddings` first."

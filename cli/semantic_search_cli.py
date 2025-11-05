@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import argparse
 
+from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
 from cli.lib.semantic_search import (
     SemanticSearch,
@@ -69,12 +70,33 @@ def main():
             if not limit:
                 limit = 5
             semantic_search = SemanticSearch()
-            semantic_search.load_or_create_embeddings(semantic_search.documents or [])
+            # Load movies from the canonical data file so document indices align
+            # with any cached embeddings.
+            path_movies = Path("data/movies.json")
+            documents = load_movies(path_movies)
+            if not documents:
+                print(
+                    f"No movies found at {path_movies}. Please add movies to the dataset."
+                )
+                return
+            # Guard against the SemanticSearch requiring a non-empty document list
+            # and bubble up any validation errors as user-friendly messages.
+            try:
+                semantic_search.load_or_create_embeddings(documents)
+            except ValueError as e:
+                print(f"Error preparing embeddings: {e}")
+                return
             results = semantic_search.search(query, limit=limit)
             for idx, item in enumerate(results, start=1):
                 movie, score = item
-                print(f"{movie.get('title')} ({score:.4f})")
+                print(
+                    "============================================================================"
+                )
+                print(f"{idx}. {movie.get('title')} ({score:.4f})")
                 print(f"{movie.get('description')}")
+                print(
+                    "============================================================================"
+                )
         case _:
             parser.print_help()
 

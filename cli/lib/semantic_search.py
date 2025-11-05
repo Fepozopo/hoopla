@@ -36,25 +36,73 @@ class SemanticSearch:
         return embedding[0]
 
     def build_embeddings(self, documents: list[Movie]) -> np.ndarray:
+        # Defensive guard: do not attempt to build embeddings for an empty corpus.
+        if not documents:
+            raise ValueError("Cannot build embeddings: documents list is empty.")
+
         # Create strings of "Title: Description" for each movie.
         movies = [f"{doc['title']}: {doc['description']}" for doc in documents]
-        self.embeddings = self.model.encode(movies, show_progress_bar=True)
+
+        # Build embeddings and provide a clearer error if the encoder fails.
+        try:
+            self.embeddings = self.model.encode(movies, show_progress_bar=True)
+        except Exception as e:
+            raise RuntimeError(f"Failed to build embeddings: {e}") from e
+
         self.documents = documents
         self.document_map = {i: doc for i, doc in enumerate(documents)}
 
-        np.save("cache/movie_embeddings.npy", self.embeddings)
+        # Ensure cache directory exists before saving; writing the cache is best-effort.
+        cache_path = Path("cache/movie_embeddings.npy")
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            np.save(cache_path, self.embeddings)
+        except Exception as e:
+            # Do not fail the entire operation if the cache cannot be written;
+            # keep embeddings available in memory but notify the user.
+            print(f"Warning: failed to write embeddings cache: {e}")
+
         # Ensure we always return an ndarray at runtime for callers / static analysis.
         assert isinstance(self.embeddings, np.ndarray)
         return self.embeddings
 
     def load_or_create_embeddings(self, documents: list[Movie]) -> np.ndarray:
-        try:
-            self.embeddings = np.load("cache/movie_embeddings.npy")
+        # Ensure callers supply a non-empty documents list. This prevents silent
+        # mismatches where embeddings exist but the document map is empty.
+        if not documents:
+            raise ValueError(
+                "Cannot load or create embeddings: documents list is empty."
+            )
+
+        cache_path = Path("cache/movie_embeddings.npy")
+
+        if cache_path.exists():
+            try:
+                loaded = np.load(cache_path)
+            except Exception as e:
+                # If the cache cannot be read (corrupt file, permission issues, etc.)
+                # rebuild from the provided documents and communicate the reason.
+                print(f"Cached embeddings could not be read ({e}); rebuilding.")
+                return self.build_embeddings(documents)
+
+            # If the cached embeddings don't match the current documents, rebuild them.
+            if (
+                not isinstance(loaded, np.ndarray)
+                or loaded.ndim != 2
+                or loaded.shape[0] != len(documents)
+            ):
+                print(
+                    "Cached embeddings do not match the current documents; rebuilding."
+                )
+                return self.build_embeddings(documents)
+
+            # Cache looks valid: use it and wire up the in-memory document map.
+            self.embeddings = loaded
             self.documents = documents
             self.document_map = {i: doc for i, doc in enumerate(documents)}
-        except FileNotFoundError:
+        else:
             # If cached embeddings are not found, build them.
-            self.build_embeddings(documents)
+            return self.build_embeddings(documents)
 
         # Runtime guard to ensure we return a concrete ndarray (not None).
         if self.embeddings is None:
@@ -76,6 +124,7 @@ class SemanticSearch:
         similarities.sort(key=lambda x: x[1], reverse=True)
         top_results = similarities[:limit]
 
+        # Return the top results (up to limit) as a list of dictionaries
         return [(self.document_map[idx], score) for idx, score in top_results]
 
 

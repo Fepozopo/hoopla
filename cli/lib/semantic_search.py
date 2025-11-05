@@ -62,6 +62,22 @@ class SemanticSearch:
         assert isinstance(self.embeddings, np.ndarray)
         return self.embeddings
 
+    def search(self, query: str, limit: int):
+        if self.embeddings is None or self.documents is None:
+            raise RuntimeError(
+                "No embeddings loaded. Call `load_or_create_embeddings` first."
+            )
+
+        query_embedding = self.generate_embedding(query)
+        similarities = [
+            (idx, cosine_similarity(query_embedding, doc_embedding))
+            for idx, doc_embedding in enumerate(self.embeddings)
+        ]
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        top_results = similarities[:limit]
+
+        return [(self.document_map[idx], score) for idx, score in top_results]
+
 
 def verify_model():
     try:

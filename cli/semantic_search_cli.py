@@ -13,6 +13,7 @@ from cli.keyword_search_cli import CLIArgs
 from cli.lib.semantic_search import (
     SemanticSearch,
     embed_text,
+    fixed_size_chunks,
     verify_embeddings,
     verify_model,
 )
@@ -43,6 +44,13 @@ def main():
         type=int,
         default=5,
         help="Number of top results to return (default: 5)",
+    )
+    chunk_parser = subparsers.add_parser(
+        "chunk", help="Chunk text into smaller pieces for embedding"
+    )
+    _ = chunk_parser.add_argument("text", type=str, help="Text to chunk")
+    _ = chunk_parser.add_argument(
+        "--chunk-size", type=int, default=200, help="Chunk size"
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -97,6 +105,13 @@ def main():
                 print(
                     "============================================================================"
                 )
+                print()
+        case "chunk":
+            text = getattr(args, "text")
+            chunk_size = getattr(args, "chunk_size")
+            print(f"Chunking {len(text)} characters")
+            for idx, chunk in enumerate(fixed_size_chunks(text, chunk_size), start=1):
+                print(f"{idx}. {chunk}")
         case _:
             parser.print_help()
 

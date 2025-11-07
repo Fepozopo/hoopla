@@ -184,3 +184,12 @@ def cosine_similarity(vec1: float, vec2: float):
     if norm_vec1 == 0 or norm_vec2 == 0:
         return 0.0
     return dot_product / (norm_vec1 * norm_vec2)
+
+
+def fixed_size_chunks(text: str, size: int):
+    """Yield successive fixed-size chunks from text by grouping 'size'
+    words together into a single string.
+    """
+    words = text.split()
+    for i in range(0, len(words), size):
+        yield " ".join(words[i : i + size])

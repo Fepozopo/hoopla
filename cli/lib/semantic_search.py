@@ -186,10 +186,16 @@ def cosine_similarity(vec1: float, vec2: float):
     return dot_product / (norm_vec1 * norm_vec2)
 
 
-def fixed_size_chunks(text: str, size: int):
+def fixed_size_chunks(text: str, size: int, overlap: int = 0):
     """Yield successive fixed-size chunks from text by grouping 'size'
     words together into a single string.
     """
     words = text.split()
-    for i in range(0, len(words), size):
-        yield " ".join(words[i : i + size])
+    start = 0
+    while start < len(words):
+        end = start + size
+        chunk = " ".join(words[start:end])
+        yield chunk
+        if start + size >= len(words):
+            break
+        start += size - overlap

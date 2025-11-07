@@ -52,6 +52,9 @@ def main():
     _ = chunk_parser.add_argument(
         "--chunk-size", type=int, default=200, help="Chunk size"
     )
+    _ = chunk_parser.add_argument(
+        "--overlap", type=int, default=0, help="Chunk overlap size"
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -109,8 +112,13 @@ def main():
         case "chunk":
             text = getattr(args, "text")
             chunk_size = getattr(args, "chunk_size")
+            overlap = getattr(args, "overlap")
+            if overlap >= chunk_size:
+                parser.error("overlap must be smaller than chunk_size")
             print(f"Chunking {len(text)} characters")
-            for idx, chunk in enumerate(fixed_size_chunks(text, chunk_size), start=1):
+            for idx, chunk in enumerate(
+                fixed_size_chunks(text, chunk_size, overlap), start=1
+            ):
                 print(f"{idx}. {chunk}")
         case _:
             parser.print_help()

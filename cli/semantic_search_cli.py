@@ -14,6 +14,7 @@ from cli.lib.semantic_search import (
     SemanticSearch,
     embed_text,
     fixed_size_chunks,
+    semantic_chunks,
     verify_embeddings,
     verify_model,
 )
@@ -53,6 +54,16 @@ def main():
         "--chunk-size", type=int, default=200, help="Chunk size"
     )
     _ = chunk_parser.add_argument(
+        "--overlap", type=int, default=0, help="Chunk overlap size"
+    )
+    semantic_chunck_parser = subparsers.add_parser(
+        "semantic_chunk", help="Chunk text semantically"
+    )
+    _ = semantic_chunck_parser.add_argument("text", type=str, help="Text to chunk")
+    _ = semantic_chunck_parser.add_argument(
+        "--max-chunk-size", type=int, default=4, help="Maximum chunk size"
+    )
+    _ = semantic_chunck_parser.add_argument(
         "--overlap", type=int, default=0, help="Chunk overlap size"
     )
 
@@ -119,6 +130,16 @@ def main():
             for idx, chunk in enumerate(
                 fixed_size_chunks(text, chunk_size, overlap), start=1
             ):
+                print(f"{idx}. {chunk}")
+        case "semantic_chunk":
+            text = getattr(args, "text")
+            max_chunk_size = getattr(args, "max_chunk_size")
+            overlap = getattr(args, "overlap")
+            if overlap >= max_chunk_size:
+                parser.error("overlap must be smaller than max_chunk_size")
+            print(f"Semantically chunking {len(text)} characters")
+            results = semantic_chunks(text, max_chunk_size, overlap)
+            for idx, chunk in enumerate(results, start=1):
                 print(f"{idx}. {chunk}")
         case _:
             parser.print_help()

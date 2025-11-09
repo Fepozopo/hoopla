@@ -6,6 +6,7 @@ from pathlib import Path
 # so `from cli.helpers import ...` works when running the script directly.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -199,3 +200,42 @@ def fixed_size_chunks(text: str, size: int, overlap: int = 0):
         if start + size >= len(words):
             break
         start += size - overlap
+
+
+def semantic_chunks(text: str, max_chunk_size: int = 4, overlap: int = 0):
+    """Yield successive semantic chunks from text by grouping sentences.
+
+    Each chunk will contain up to `max_chunk_size` sentences. Adjacent chunks
+    will overlap by `overlap` sentences (the number of sentences, not words).
+
+    Args:
+        text: The input text to chunk.
+        max_chunk_size: Maximum number of sentences per chunk (must be >= 1).
+        overlap: Number of sentences to overlap between consecutive chunks
+                 (must be >= 0 and < max_chunk_size).
+    """
+    if max_chunk_size <= 0:
+        raise ValueError("max_chunk_size must be a positive integer.")
+    if overlap < 0:
+        raise ValueError("overlap must be a non-negative integer.")
+    if overlap >= max_chunk_size:
+        raise ValueError("overlap must be smaller than max_chunk_size.")
+
+    # Split the input into individual sentences. Use \s+ after lookbehind to
+    # handle newlines and multiple spaces. Strip out any empty entries.
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+
+    if not sentences:
+        return
+
+    # Step is how many sentences we advance for the next chunk.
+    step = max_chunk_size - overlap
+
+    # Slide a window of up to `max_chunk_size` sentences, advancing by `step`.
+    for start in range(0, len(sentences), step):
+        end = start + max_chunk_size
+        chunk_sentences = sentences[start:end]
+        if chunk_sentences:
+            yield " ".join(chunk_sentences)
+        if end >= len(sentences):
+            break

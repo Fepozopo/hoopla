@@ -129,6 +129,70 @@ class SemanticSearch:
         return [(self.document_map[idx], score) for idx, score in top_results]
 
 
+class ChunkedSemanticSearch(SemanticSearch):
+    def __init__(self, model_name="all-MiniLM-L6-v2") -> None:
+        super().__init__(model_name)
+        self.chunk_embeddings = None
+        self.chunk_metadata = None
+
+    def build_chunk_embeddings(self, documents: list[Movie]):
+        all_chunks = []
+        chunk_metadata = []
+
+        for doc_id, doc in enumerate(documents):
+            description = doc["description"]
+            if not description:
+                continue
+            chunks = list(semantic_chunks(description, max_chunk_size=4, overlap=1))
+            all_chunks.extend(chunks)
+            total_chunks = len(chunks)
+            for chunk_idx, _ in enumerate(chunks):
+                chunk_metadata.append(
+                    {
+                        "movie_idx": doc_id,
+                        "chunk_idx": chunk_idx,
+                        "total_chunks": total_chunks,
+                    }
+                )
+
+        try:
+            self.chunk_embeddings = self.model.encode(
+                all_chunks, show_progress_bar=True
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to build chunk embeddings: {e}") from e
+
+        self.documents = documents
+        self.chunk_metadata = chunk_metadata
+
+        # Ensure cache directory exists before saving; writing the cache is best-effort.
+        cache_dir = Path("cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            np.save(cache_dir / "chunk_embeddings.npy", self.chunk_embeddings)
+        except Exception as e:
+            # Do not fail the entire operation if the cache cannot be written;
+            # keep embeddings available in memory but notify the user.
+            print(f"Warning: failed to write chunk embeddings cache: {e}")
+
+        try:
+            import json
+
+            with open(cache_dir / "chunk_metadata.json", "w") as f:
+                json.dump(
+                    {"chunks": chunk_metadata, "total_chunks": len(all_chunks)},
+                    f,
+                    indent=2,
+                )
+        except Exception as e:
+            print(f"Warning: failed to write chunk metadata cache: {e}")
+
+        # Ensure we always return an ndarray at runtime for callers / static analysis.
+        assert isinstance(self.chunk_embeddings, np.ndarray)
+        return self.chunk_embeddings
+
+
 def verify_model():
     try:
         semantic_search = SemanticSearch()

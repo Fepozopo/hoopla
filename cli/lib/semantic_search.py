@@ -136,14 +136,24 @@ class ChunkedSemanticSearch(SemanticSearch):
         self.chunk_metadata = None
 
     def build_chunk_embeddings(self, documents: list[Movie]):
+        # Defensive guard: do not attempt to build embeddings for an empty corpus.
+        if not documents:
+            raise ValueError("Cannot build chunk embeddings: documents list is empty.")
+
+        # Populate documents and document_map just like build_embeddings expects.
+        self.documents = documents
+        self.document_map = {i: doc for i, doc in enumerate(documents)}
+
         all_chunks = []
         chunk_metadata = []
 
         for doc_id, doc in enumerate(documents):
-            description = doc["description"]
+            description = doc.get("description", "")
             if not description:
                 continue
             chunks = list(semantic_chunks(description, max_chunk_size=4, overlap=1))
+            if not chunks:
+                continue
             all_chunks.extend(chunks)
             total_chunks = len(chunks)
             for chunk_idx, _ in enumerate(chunks):
@@ -155,6 +165,11 @@ class ChunkedSemanticSearch(SemanticSearch):
                     }
                 )
 
+        if not all_chunks:
+            raise ValueError(
+                "No chunks produced from documents; cannot build chunk embeddings."
+            )
+
         try:
             self.chunk_embeddings = self.model.encode(
                 all_chunks, show_progress_bar=True
@@ -162,7 +177,7 @@ class ChunkedSemanticSearch(SemanticSearch):
         except Exception as e:
             raise RuntimeError(f"Failed to build chunk embeddings: {e}") from e
 
-        self.documents = documents
+        # self.documents already set above
         self.chunk_metadata = chunk_metadata
 
         # Ensure cache directory exists before saving; writing the cache is best-effort.
@@ -172,8 +187,6 @@ class ChunkedSemanticSearch(SemanticSearch):
         try:
             np.save(cache_dir / "chunk_embeddings.npy", self.chunk_embeddings)
         except Exception as e:
-            # Do not fail the entire operation if the cache cannot be written;
-            # keep embeddings available in memory but notify the user.
             print(f"Warning: failed to write chunk embeddings cache: {e}")
 
         try:
@@ -188,11 +201,20 @@ class ChunkedSemanticSearch(SemanticSearch):
         except Exception as e:
             print(f"Warning: failed to write chunk metadata cache: {e}")
 
-        # Ensure we always return an ndarray at runtime for callers / static analysis.
         assert isinstance(self.chunk_embeddings, np.ndarray)
         return self.chunk_embeddings
 
     def load_or_create_chunk_embeddings(self, documents: list[Movie]) -> np.ndarray:
+        # Defensive guard: do not attempt to load/create embeddings for an empty corpus.
+        if not documents:
+            raise ValueError(
+                "Cannot load or create chunk embeddings: documents list is empty."
+            )
+
+        # Populate documents and document_map from the input documents right away.
+        self.documents = documents
+        self.document_map = {i: doc for i, doc in enumerate(documents)}
+
         cache_dir = Path("cache")
         embeddings_path = cache_dir / "chunk_embeddings.npy"
         metadata_path = cache_dir / "chunk_metadata.json"
@@ -213,6 +235,7 @@ class ChunkedSemanticSearch(SemanticSearch):
                 print(f"Cached chunk metadata could not be read ({e}); rebuilding.")
                 return self.build_chunk_embeddings(documents)
 
+            # Validate format and length against metadata if available.
             if (
                 not isinstance(loaded_embeddings, np.ndarray)
                 or loaded_embeddings.ndim != 2
@@ -222,9 +245,18 @@ class ChunkedSemanticSearch(SemanticSearch):
                 )
                 return self.build_chunk_embeddings(documents)
 
+            total_chunks_meta = metadata.get("total_chunks")
+            if (
+                total_chunks_meta is not None
+                and int(total_chunks_meta) != loaded_embeddings.shape[0]
+            ):
+                print(
+                    "Cached chunk embeddings length does not match metadata; rebuilding."
+                )
+                return self.build_chunk_embeddings(documents)
+
             self.chunk_embeddings = loaded_embeddings
             self.chunk_metadata = metadata.get("chunks", [])
-            self.documents = documents
         else:
             return self.build_chunk_embeddings(documents)
 

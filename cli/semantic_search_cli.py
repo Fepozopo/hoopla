@@ -11,6 +11,7 @@ import argparse
 from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
 from cli.lib.semantic_search import (
+    ChunkedSemanticSearch,
     SemanticSearch,
     embed_text,
     fixed_size_chunks,
@@ -65,6 +66,9 @@ def main():
     )
     _ = semantic_chunck_parser.add_argument(
         "--overlap", type=int, default=0, help="Chunk overlap size"
+    )
+    embed_chunks_parser = subparsers.add_parser(
+        "embed_chunks", help="Embed text chunks"
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -141,6 +145,29 @@ def main():
             results = semantic_chunks(text, max_chunk_size, overlap)
             for idx, chunk in enumerate(results, start=1):
                 print(f"{idx}. {chunk}")
+        case "embed_chunks":
+            # Load movies from the canonical data file so document indices align
+            # with any cached chunk embeddings.
+            path_movies = Path("data/movies.json")
+            documents = load_movies(path_movies)
+            if not documents:
+                print(
+                    f"No movies found at {path_movies}. Please add movies to the dataset."
+                )
+                return
+
+            chunked_search = ChunkedSemanticSearch()
+
+            # Use the chunked search's method to load or create embeddings
+            load_fn = chunked_search.load_or_create_embeddings
+
+            try:
+                embeddings = load_fn(documents)
+            except ValueError as e:
+                print(f"Error preparing chunk embeddings: {e}")
+                return
+
+            print(f"Generated {len(embeddings)} chunked embeddings")
         case _:
             parser.print_help()
 

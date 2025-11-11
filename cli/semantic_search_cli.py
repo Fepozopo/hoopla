@@ -67,9 +67,7 @@ def main():
     _ = semantic_chunck_parser.add_argument(
         "--overlap", type=int, default=0, help="Chunk overlap size"
     )
-    embed_chunks_parser = subparsers.add_parser(
-        "embed_chunks", help="Embed text chunks"
-    )
+    _ = subparsers.add_parser("embed_chunks", help="Embed text chunks")
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()

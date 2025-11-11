@@ -192,6 +192,47 @@ class ChunkedSemanticSearch(SemanticSearch):
         assert isinstance(self.chunk_embeddings, np.ndarray)
         return self.chunk_embeddings
 
+    def load_or_create_chunk_embeddings(self, documents: list[Movie]) -> np.ndarray:
+        cache_dir = Path("cache")
+        embeddings_path = cache_dir / "chunk_embeddings.npy"
+        metadata_path = cache_dir / "chunk_metadata.json"
+
+        if embeddings_path.exists() and metadata_path.exists():
+            try:
+                loaded_embeddings = np.load(embeddings_path)
+            except Exception as e:
+                print(f"Cached chunk embeddings could not be read ({e}); rebuilding.")
+                return self.build_chunk_embeddings(documents)
+
+            try:
+                import json
+
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+            except Exception as e:
+                print(f"Cached chunk metadata could not be read ({e}); rebuilding.")
+                return self.build_chunk_embeddings(documents)
+
+            if (
+                not isinstance(loaded_embeddings, np.ndarray)
+                or loaded_embeddings.ndim != 2
+            ):
+                print(
+                    "Cached chunk embeddings do not match expected format; rebuilding."
+                )
+                return self.build_chunk_embeddings(documents)
+
+            self.chunk_embeddings = loaded_embeddings
+            self.chunk_metadata = metadata.get("chunks", [])
+            self.documents = documents
+        else:
+            return self.build_chunk_embeddings(documents)
+
+        if self.chunk_embeddings is None:
+            raise RuntimeError("Chunk embeddings could not be loaded or built.")
+        assert isinstance(self.chunk_embeddings, np.ndarray)
+        return self.chunk_embeddings
+
 
 def verify_model():
     try:

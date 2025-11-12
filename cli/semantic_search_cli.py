@@ -68,6 +68,16 @@ def main():
         "--overlap", type=int, default=0, help="Chunk overlap size"
     )
     _ = subparsers.add_parser("embed_chunks", help="Embed text chunks")
+    search_chunked_parser = subparsers.add_parser(
+        "search_chunked", help="Search movies using chunked semantic search"
+    )
+    _ = search_chunked_parser.add_argument("query", type=str, help="Search query")
+    _ = search_chunked_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Number of top results to return (default: 5)",
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -166,6 +176,36 @@ def main():
                 return
 
             print(f"Generated {len(embeddings)} chunked embeddings")
+        case "search_chunked":
+            query = getattr(args, "query")
+            limit = getattr(args, "limit")
+            if limit <= 0:
+                print("Limit must be a positive integer.")
+                return
+            if not limit:
+                limit = 5
+            chunked_search = ChunkedSemanticSearch()
+            # Load movies from the canonical data file so document indices align
+            # with any cached chunk embeddings.
+            path_movies = Path("data/movies.json")
+            documents = load_movies(path_movies)
+            if not documents:
+                print(
+                    f"No movies found at {path_movies}. Please add movies to the dataset."
+                )
+                return
+            # Guard against the ChunkedSemanticSearch requiring a non-empty document list
+            # and bubble up any validation errors as user-friendly messages.
+            try:
+                chunked_search.load_or_create_chunk_embeddings(documents)
+            except ValueError as e:
+                print(f"Error preparing chunk embeddings: {e}")
+                return
+            results = chunked_search.search_chunks(query, limit=limit)
+            for idx, item in enumerate(results, start=1):
+                movie, score = item
+                print(f"\n{idx}. {movie.get('title')} ({score:.4f})")
+                print(f"    {movie.get('description')}...")
         case _:
             parser.print_help()
 

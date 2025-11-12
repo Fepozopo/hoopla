@@ -265,6 +265,91 @@ class ChunkedSemanticSearch(SemanticSearch):
         assert isinstance(self.chunk_embeddings, np.ndarray)
         return self.chunk_embeddings
 
+    def search_chunks(self, query: str, limit: int = 10):
+        if self.chunk_embeddings is None or self.chunk_metadata is None:
+            raise RuntimeError(
+                "No chunk embeddings loaded. Call `load_or_create_chunk_embeddings` first."
+            )
+
+        # Generate an embedding of the query (using the method from the SemanticSearch class)
+        semantic_search = SemanticSearch()
+        query_embedding = semantic_search.generate_embedding(query)
+
+        # Populate an empty list to store "chunk score" dictionaries
+        chunk_scores = []
+
+        # Compute cosine similarity between the query embedding and each chunk embedding
+        for idx, chunk_embedding in enumerate(self.chunk_embeddings):
+            score = cosine_similarity(query_embedding, chunk_embedding)
+            chunk_info = self.chunk_metadata[idx]
+            chunk_scores.append(
+                {
+                    "chunk_idx": chunk_info["chunk_idx"],
+                    "movie_idx": chunk_info["movie_idx"],
+                    "score": score,
+                }
+            )
+
+        # Create an empty dictionary that maps movie indexes to their scores
+        movie_scores = {}
+
+        # For each chunk score, if the movie_idx is not in the movie score dictionary yet,
+        # or the new score is higher than the existing one,
+        # update the movie score dictionary with the new chunk score
+        for chunk_score in chunk_scores:
+            movie_idx = chunk_score["movie_idx"]
+            score = chunk_score["score"]
+            if movie_idx not in movie_scores or score > movie_scores[movie_idx]:
+                movie_scores[movie_idx] = score
+
+        # Sort the movie scores by score in descending order
+        sorted_movie_scores = sorted(
+            movie_scores.items(), key=lambda x: x[1], reverse=True
+        )
+
+        # Filter down to the top limit movies
+        top_results = sorted_movie_scores[:limit]
+
+        SCORE_PRECISION = 4
+
+        # Build formatted results
+        formatted_results = []
+        for movie_idx, score in top_results:
+            # Safely access the document; fallback to empty dict if missing.
+            doc = (
+                self.documents[movie_idx]
+                if self.documents and movie_idx < len(self.documents)
+                else {}
+            )
+            title = doc.get("title", "")
+            description = doc.get("description", "") or ""
+            truncated = description[:100]
+
+            # Build metadata: include best matching chunk info if available.
+            metadata = {}
+            matching_chunks = [c for c in chunk_scores if c["movie_idx"] == movie_idx]
+            if matching_chunks:
+                best_chunk = max(matching_chunks, key=lambda x: x["score"])
+                metadata = {
+                    "best_chunk_idx": best_chunk.get("chunk_idx"),
+                    "best_chunk_score": round(
+                        best_chunk.get("score", 0.0), SCORE_PRECISION
+                    ),
+                    "matched_chunks": len(matching_chunks),
+                }
+
+            formatted_results.append(
+                {
+                    "id": movie_idx,
+                    "title": title,
+                    "document": truncated,
+                    "score": round(score, SCORE_PRECISION),
+                    "metadata": metadata or {},
+                }
+            )
+
+        return formatted_results
+
 
 def verify_model():
     try:

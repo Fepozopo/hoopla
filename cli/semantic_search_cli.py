@@ -196,9 +196,11 @@ def main():
                 return
             results = chunked_search.search_chunks(query, limit=limit)
             for idx, item in enumerate(results, start=1):
-                movie, score = item
-                print(f"\n{idx}. {movie.get('title')} ({score:.4f})")
-                print(f"    {movie.get('description')}...")
+                title = item.get("title", "Unknown")
+                score = item.get("score", 0.0)
+                description = item.get("document", "")
+                print(f"\n{idx}. {title} ({score:.4f})")
+                print(f"    {description}...")
         case _:
             parser.print_help()
 

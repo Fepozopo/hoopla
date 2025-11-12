@@ -123,15 +123,8 @@ def main():
             results = semantic_search.search(query, limit=limit)
             for idx, item in enumerate(results, start=1):
                 movie, score = item
-                print(
-                    "============================================================================"
-                )
-                print(f"{idx}. {movie.get('title')} ({score:.4f})")
+                print(f"\n{idx}. {movie.get('title')} ({score:.4f})")
                 print(f"{movie.get('description')}")
-                print(
-                    "============================================================================"
-                )
-                print()
         case "chunk":
             text = getattr(args, "text")
             chunk_size = getattr(args, "chunk_size")

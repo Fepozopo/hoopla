@@ -6,6 +6,7 @@ from pathlib import Path
 # so `from cli.helpers import ...` works when running the script directly.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+import json
 import re
 from pathlib import Path
 
@@ -190,8 +191,6 @@ class ChunkedSemanticSearch(SemanticSearch):
             print(f"Warning: failed to write chunk embeddings cache: {e}")
 
         try:
-            import json
-
             with open(cache_dir / "chunk_metadata.json", "w") as f:
                 json.dump(
                     {"chunks": chunk_metadata, "total_chunks": len(all_chunks)},

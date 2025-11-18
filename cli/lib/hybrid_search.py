@@ -6,8 +6,6 @@ from pathlib import Path
 # so `from cli.helpers import ...` works when running the script directly.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-import os
-
 from cli.helpers import InvertedIndex
 from cli.lib.semantic_search import ChunkedSemanticSearch
 

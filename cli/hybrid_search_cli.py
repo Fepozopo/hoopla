@@ -8,14 +8,38 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import argparse
 
+from cli.keyword_search_cli import CLIArgs
+from cli.lib.hybrid_search import normalize_scores
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hybrid Search CLI")
-    parser.add_subparsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    args = parser.parse_args()
+    normalize_parser = subparsers.add_parser(
+        "normalize", help="Normalize a list of scores"
+    )
+    _ = normalize_parser.add_argument(
+        "scores",
+        type=float,
+        nargs="+",
+        help="List of scores to normalize",
+    )
+
+    # Use a typed namespace so static checkers know the types of attributes
+    namespace = CLIArgs()
+    _ = parser.parse_args(namespace=namespace)
+    args: CLIArgs = namespace
 
     match args.command:
+        case "normalize":
+            scores = getattr(args, "scores")
+            if scores is None:
+                print("No scores provided for normalization.")
+                return
+            normalized = normalize_scores(scores)
+            for score in normalized:
+                print(f"* {score:.4f}")
         case _:
             parser.print_help()
 

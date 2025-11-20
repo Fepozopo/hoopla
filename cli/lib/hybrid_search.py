@@ -39,15 +39,103 @@ class HybridSearch:
         return self.idx.bm25_search(query, limit)
 
     def weighted_search(self, query: str, alpha: float, limit: int = 5):
-        raise NotImplementedError("Weighted hybrid search is not implemented yet.")
+        """Perform a hybrid weighted search combining BM25 and chunked semantic scores.
+
+        - Request an oversampled set of candidates from both BM25 and chunked semantic search
+          (limit * 500) to ensure sufficient overlap.
+        - Normalize both score sets via min-max normalization.
+        - Combine scores per-document using the provided alpha weight for BM25.
+        - Return the top `limit` results sorted by the hybrid score.
+        """
+        # Get BM25 results (movies list and a dict of id->score)
+        bm25_docs, bm25_scores = self._bm25_search(query, limit * 500)
+
+        # Use chunked semantic search to get per-document semantic scores.
+        # `search_chunks` returns formatted dicts with 'id' (movie index) and 'score'.
+        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+
+        # Normalize representations to list[(doc_id, score)]
+        bm25_pairs = [(doc["id"], bm25_scores.get(doc["id"], 0.0)) for doc in bm25_docs]
+        bm25_scores_list = [score for _, score in bm25_pairs]
+
+        # Convert semantic formatted results into (actual_doc_id, score) pairs.
+        # Chunked results return 'id' as the movie index (position in self.documents),
+        # so map that to the real movie id when possible.
+        semantic_pairs: list[tuple[int, float]] = []
+        for item in semantic_results:
+            # item is expected to be a dict like {"id": movie_idx, "score": score, ...}
+            movie_idx = item.get("id")
+            score = item.get("score", 0.0)
+            doc_id = None
+            if isinstance(movie_idx, int) and 0 <= movie_idx < len(self.documents):
+                doc = self.documents[movie_idx]
+                doc_id = doc.get("id")
+            else:
+                # Fallback: if `id` already reflects the real doc id or is unexpected,
+                # use it directly.
+                doc_id = movie_idx
+            semantic_pairs.append((doc_id, float(score)))
+
+        semantic_scores_list = [score for _, score in semantic_pairs]
+
+        # Normalize both score lists into [0.0, 1.0]
+        normalized_bm25 = normalize_scores(bm25_scores_list)
+        normalized_semantic = normalize_scores(semantic_scores_list)
+
+        # Build a map of all documents by id for easy lookup
+        doc_map = {doc["id"]: doc for doc in self.documents}
+
+        # Create maps from doc_id -> normalized score for bm25 and semantic results.
+        # Use zip to align the normalized scores with the original ordered pairs.
+        bm25_norm_map = {
+            doc_id: score for (doc_id, _), score in zip(bm25_pairs, normalized_bm25)
+        }
+        semantic_norm_map = {
+            doc_id: score
+            for (doc_id, _), score in zip(semantic_pairs, normalized_semantic)
+        }
+
+        # Collect the union of candidate document ids
+        candidate_ids = set(bm25_norm_map.keys()) | set(semantic_norm_map.keys())
+
+        # Build list of combined result dicts
+        combined_results = []
+        for doc_id in candidate_ids:
+            kw_score = bm25_norm_map.get(doc_id, 0.0)
+            sem_score = semantic_norm_map.get(doc_id, 0.0)
+            hyb = hybrid_score(kw_score, sem_score, alpha)
+            combined_results.append(
+                {
+                    "doc": doc_map.get(doc_id),
+                    "keyword_score": kw_score,
+                    "semantic_score": sem_score,
+                    "hybrid_score": hyb,
+                }
+            )
+
+        # Return results sorted by hybrid_score descending, limited to `limit` entries
+        combined_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
+        return combined_results[:limit]
 
     def rrf_search(self, query: str, k: int, limit: int = 10):
         raise NotImplementedError("RRF hybrid search is not implemented yet.")
 
 
-def normalize_scores(scores: list[int]):
+def normalize_scores(scores: list[float]) -> list[float]:
+    """Min-max normalize a list of numeric scores into [0.0, 1.0].
+
+    Returns an empty list if `scores` is empty. If all scores are equal,
+    returns a list of 1.0s to avoid division by zero (preserves ranking).
+    """
+    if not scores:
+        return []
     min_score = min(scores)
     max_score = max(scores)
     if max_score == min_score:
         return [1.0 for _ in scores]  # Avoid division by zero; all scores are equal.
     return [(score - min_score) / (max_score - min_score) for score in scores]
+
+
+def hybrid_score(bm25_score: float, semantic_score: float, alpha: float = 0.5) -> float:
+    """Combine BM25 and semantic scores using weight alpha for BM25."""
+    return (alpha * bm25_score) + ((1.0 - alpha) * semantic_score)

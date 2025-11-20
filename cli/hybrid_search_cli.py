@@ -8,8 +8,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import argparse
 
+from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
-from cli.lib.hybrid_search import normalize_scores
+from cli.lib.hybrid_search import HybridSearch, normalize_scores
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
         help="List of scores to normalize",
     )
     weighted_search_parser = subparsers.add_parser(
-        "weighted_search", help="Perform a weighted hybrid search"
+        "weighted-search", help="Perform a weighted hybrid search"
     )
     _ = weighted_search_parser.add_argument("query", type=str, help="Search query")
     _ = weighted_search_parser.add_argument(
@@ -56,6 +57,44 @@ def main() -> None:
             normalized = normalize_scores(scores)
             for score in normalized:
                 print(f"* {score:.4f}")
+        case "weighted-search":
+            query = getattr(args, "query")
+            alpha = getattr(args, "alpha")
+            limit = getattr(args, "limit")
+            if query is None:
+                print("No query provided for weighted search.")
+                return
+
+            # Load movies from the repository data file and perform a hybrid weighted search.
+            path_movies = Path(__file__).parent.parent / "data" / "movies.json"
+            movies = load_movies(path_movies)
+            if not movies:
+                print(
+                    f"No movies loaded from {path_movies}. Ensure the data file exists."
+                )
+                return
+
+            hs = HybridSearch(movies)
+            results = hs.weighted_search(query, alpha, limit)
+
+            # Print formatted, truncated results
+            for idx, item in enumerate(results, start=1):
+                doc = item.get("doc") or {}
+                title = doc.get("title", "(no title)")
+                hybrid = item.get("hybrid_score", 0.0)
+                bm25 = item.get("keyword_score", 0.0)
+                semantic = item.get("semantic_score", 0.0)
+                description = doc.get("description", "")
+                # Truncate description to a reasonable length for display
+                excerpt = description
+                max_len = 100
+                if len(description) > max_len:
+                    excerpt = description[:max_len].rstrip() + "..."
+                print(f"{idx}. {title}")
+                print(f"   Hybrid Score: {hybrid:.3f}")
+                print(f"   BM25: {bm25:.3f}, Semantic: {semantic:.3f}")
+                if excerpt:
+                    print(f"   {excerpt}")
         case _:
             parser.print_help()
 

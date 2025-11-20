@@ -25,6 +25,22 @@ def main() -> None:
         nargs="+",
         help="List of scores to normalize",
     )
+    weighted_search_parser = subparsers.add_parser(
+        "weighted_search", help="Perform a weighted hybrid search"
+    )
+    _ = weighted_search_parser.add_argument("query", type=str, help="Search query")
+    _ = weighted_search_parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.5,
+        help="Weighting factor between keyword and semantic scores (default: 0.5)",
+    )
+    _ = weighted_search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Number of top results to return (default: 5)",
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()

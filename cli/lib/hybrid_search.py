@@ -28,7 +28,7 @@ class HybridSearch:
             self.idx.build(documents)
             self.idx.save()
 
-    def _bm25_search(self, query, limit):
+    def _bm25_search(self, query: str, limit: int):
         # Ensure index is loaded before searching (load is idempotent).
         try:
             self.idx.load()
@@ -38,10 +38,10 @@ class HybridSearch:
             self.idx.save()
         return self.idx.bm25_search(query, limit)
 
-    def weighted_search(self, query, alpha, limit=5):
+    def weighted_search(self, query: str, alpha: float, limit: int = 5):
         raise NotImplementedError("Weighted hybrid search is not implemented yet.")
 
-    def rrf_search(self, query, k, limit=10):
+    def rrf_search(self, query: str, k: int, limit: int = 10):
         raise NotImplementedError("RRF hybrid search is not implemented yet.")
 
 

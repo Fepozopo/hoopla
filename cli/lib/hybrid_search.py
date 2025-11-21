@@ -118,7 +118,57 @@ class HybridSearch:
         return combined_results[:limit]
 
     def rrf_search(self, query: str, k: int, limit: int = 10):
-        raise NotImplementedError("RRF hybrid search is not implemented yet.")
+        """Perform Reciprocal Rank Fusion (RRF) search combining BM25 and chunked semantic scores.
+
+        - Request an oversampled set of candidates from both BM25 and chunked semantic search
+          (limit * 500) to ensure sufficient overlap.
+        """
+        # Get BM25 results (movies list and a dict of id->score)
+        bm25_docs, _ = self._bm25_search(query, limit * 500)
+
+        # Use chunked semantic search to get per-document semantic scores.
+        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+
+        # Build rank maps: doc_id -> rank (1-based)
+        bm25_rank_map = {doc["id"]: rank + 1 for rank, doc in enumerate(bm25_docs)}
+        semantic_rank_map = {}
+        for rank, item in enumerate(semantic_results):
+            movie_idx = item.get("id")
+            doc_id = None
+            if isinstance(movie_idx, int) and 0 <= movie_idx < len(self.documents):
+                doc = self.documents[movie_idx]
+                doc_id = doc.get("id")
+            else:
+                doc_id = movie_idx
+            semantic_rank_map[doc_id] = rank + 1
+
+        # Collect the union of candidate document ids
+        candidate_ids = set(bm25_rank_map.keys()) | set(semantic_rank_map.keys())
+
+        # Build list of combined result dicts
+        combined_results = []
+        for doc_id in candidate_ids:
+            bm25_rank = bm25_rank_map.get(doc_id)
+            semantic_rank = semantic_rank_map.get(doc_id)
+
+            rrf_score = 0.0
+            if bm25_rank is not None:
+                rrf_score += 1.0 / (k + bm25_rank)
+            if semantic_rank is not None:
+                rrf_score += 1.0 / (k + semantic_rank)
+
+            combined_results.append(
+                {
+                    "doc": next((d for d in self.documents if d["id"] == doc_id), None),
+                    "rrf_score": rrf_score,
+                    "bm25_rank": bm25_rank,
+                    "semantic_rank": semantic_rank,
+                }
+            )
+
+        # Return results sorted by rrf_score descending, limited to `limit` entries
+        combined_results.sort(key=lambda x: x["rrf_score"], reverse=True)
+        return combined_results[:limit]
 
 
 def normalize_scores(scores: list[float]) -> list[float]:

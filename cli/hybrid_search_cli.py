@@ -42,6 +42,22 @@ def main() -> None:
         default=5,
         help="Number of top results to return (default: 5)",
     )
+    rrf_search_parser = subparsers.add_parser(
+        "rrf-search", help="Perform a reciprocal rank fusion hybrid search"
+    )
+    _ = rrf_search_parser.add_argument("query", type=str, help="Search query")
+    _ = rrf_search_parser.add_argument(
+        "--k",
+        type=int,
+        default=60,
+        help="Reciprocal rank fusion constant k (default: 60)",
+    )
+    _ = rrf_search_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Number of top results to return (default: 5)",
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -93,6 +109,44 @@ def main() -> None:
                 print(f"{idx}. {title}")
                 print(f"   Hybrid Score: {hybrid:.3f}")
                 print(f"   BM25: {bm25:.3f}, Semantic: {semantic:.3f}")
+                if excerpt:
+                    print(f"   {excerpt}")
+        case "rrf-search":
+            query = getattr(args, "query")
+            k = getattr(args, "k")
+            limit = getattr(args, "limit")
+            if query is None:
+                print("No query provided for RRF search.")
+                return
+
+            # Load movies from the repository data file and perform a hybrid RRF search.
+            path_movies = Path(__file__).parent.parent / "data" / "movies.json"
+            movies = load_movies(path_movies)
+            if not movies:
+                print(
+                    f"No movies loaded from {path_movies}. Ensure the data file exists."
+                )
+                return
+
+            hs = HybridSearch(movies)
+            results = hs.rrf_search(query, k, limit)
+
+            # Print formatted, truncated results
+            for idx, item in enumerate(results, start=1):
+                doc = item.get("doc") or {}
+                title = doc.get("title", "(no title)")
+                rrf_score = item.get("rrf_score", 0.0)
+                bm25_rank = item.get("bm25_rank", 0)
+                semantic_rank = item.get("semantic_rank", 0)
+                description = doc.get("description", "")
+                # Truncate description to a reasonable length for display
+                excerpt = description
+                max_len = 100
+                if len(description) > max_len:
+                    excerpt = description[:max_len].rstrip() + "..."
+                print(f"{idx}. {title}")
+                print(f"   RRF Score: {rrf_score:.3f}")
+                print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")
                 if excerpt:
                     print(f"   {excerpt}")
         case _:

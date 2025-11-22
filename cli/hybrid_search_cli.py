@@ -11,6 +11,7 @@ import argparse
 from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
 from cli.lib.hybrid_search import HybridSearch, normalize_scores
+from cli.prompts.enhance import get_response
 
 
 def main() -> None:
@@ -57,6 +58,12 @@ def main() -> None:
         type=int,
         default=5,
         help="Number of top results to return (default: 5)",
+    )
+    _ = rrf_search_parser.add_argument(
+        "--enhance",
+        type=str,
+        choices=["spell"],
+        help="Query enhancement method",
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -115,9 +122,14 @@ def main() -> None:
             query = getattr(args, "query")
             k = getattr(args, "k")
             limit = getattr(args, "limit")
+            method = getattr(args, "enhance")
             if query is None:
                 print("No query provided for RRF search.")
                 return
+            if method is not None:
+                enhanced_query = get_response(method, query)
+                print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'")
+                query = enhanced_query
 
             # Load movies from the repository data file and perform a hybrid RRF search.
             path_movies = Path(__file__).parent.parent / "data" / "movies.json"
@@ -144,6 +156,7 @@ def main() -> None:
                 max_len = 100
                 if len(description) > max_len:
                     excerpt = description[:max_len].rstrip() + "..."
+
                 print(f"{idx}. {title}")
                 print(f"   RRF Score: {rrf_score:.3f}")
                 print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")

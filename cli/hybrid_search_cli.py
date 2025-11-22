@@ -129,7 +129,8 @@ def main() -> None:
             if method is not None:
                 enhanced_query = get_response(method, query)
                 print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'")
-                query = enhanced_query
+                if enhanced_query is not None:
+                    query = enhanced_query
 
             # Load movies from the repository data file and perform a hybrid RRF search.
             path_movies = Path(__file__).parent.parent / "data" / "movies.json"

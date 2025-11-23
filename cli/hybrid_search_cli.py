@@ -69,7 +69,7 @@ def main() -> None:
     _ = rrf_search_parser.add_argument(
         "--rerank-method",
         type=str,
-        choices=["individual"],
+        choices=["individual", "batch"],
         help="Reranking method to apply after RRF",
     )
 
@@ -144,9 +144,9 @@ def main() -> None:
             if limit <= 0:
                 print("Limit must be a positive integer.")
                 return
-            # Determine RRF limit based on reranking method
+            # Determine RRF limit based on whether reranking will be applied
             rrf_limit = 0
-            if rerank_method == "individual":
+            if rerank_method is not None:
                 rrf_limit = limit * 5
             else:
                 rrf_limit = limit * 500
@@ -170,9 +170,9 @@ def main() -> None:
             results = hs.rrf_search(query, k, rrf_limit)
 
             if rerank_method is not None:
-                new_results = ai_rerank_method(rerank_method, query, results)
-                if new_results is not None:
-                    results = new_results
+                reranked_results = ai_rerank_method(rerank_method, query, results)
+                if reranked_results is not None:
+                    results = reranked_results
                     # Print formatted, truncated results
                     print(
                         f"Reranking top {limit} results using {rerank_method} method..."
@@ -184,7 +184,6 @@ def main() -> None:
                         rrf_score = item.get("rrf_score", 0.0)
                         bm25_rank = item.get("bm25_rank", 0)
                         semantic_rank = item.get("semantic_rank", 0)
-                        rerank_score = item.get("rerank_score", 0.0)
                         description = doc.get("description", "")
                         # Truncate description to a reasonable length for display
                         excerpt = description
@@ -192,8 +191,20 @@ def main() -> None:
                         if len(description) > max_len:
                             excerpt = description[:max_len].rstrip() + "..."
 
+                        # Get rerank score/rank if available
+                        rerank_title = ""
+                        rerank_result = ""
+                        rerank_score = item.get("rerank_score", 0.0)
+                        rerank_rank = item.get("rerank_rank", 0)
+                        if rerank_score is not None:
+                            rerank_title = "Score"
+                            rerank_result = f"{rerank_score:.3f}/10"
+                        if rerank_rank is not None:
+                            rerank_title = "Rank"
+                            rerank_result = f"{rerank_rank}"
+
                         print(f"{idx}. {title}")
-                        print(f"   Rerank Score: {rerank_score:.3f}/10")
+                        print(f"   Rerank {rerank_title}: {rerank_result}")
                         print(f"   RRF Score: {rrf_score:.3f}")
                         print(
                             f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"

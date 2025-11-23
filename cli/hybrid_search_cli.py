@@ -62,7 +62,7 @@ def main() -> None:
     _ = rrf_search_parser.add_argument(
         "--enhance",
         type=str,
-        choices=["spell", "rewrite"],
+        choices=["spell", "rewrite", "expand"],
         help="Query enhancement method",
     )
 
@@ -128,7 +128,7 @@ def main() -> None:
                 return
             if method is not None:
                 enhanced_query = get_response(method, query)
-                print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'")
+                print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
                 if enhanced_query is not None:
                     query = enhanced_query
 

@@ -41,18 +41,16 @@ class HybridSearch:
     def weighted_search(self, query: str, alpha: float, limit: int = 5):
         """Perform a hybrid weighted search combining BM25 and chunked semantic scores.
 
-        - Request an oversampled set of candidates from both BM25 and chunked semantic search
-          (limit * 500) to ensure sufficient overlap.
         - Normalize both score sets via min-max normalization.
         - Combine scores per-document using the provided alpha weight for BM25.
         - Return the top `limit` results sorted by the hybrid score.
         """
         # Get BM25 results (movies list and a dict of id->score)
-        bm25_docs, bm25_scores = self._bm25_search(query, limit * 500)
+        bm25_docs, bm25_scores = self._bm25_search(query, limit)
 
         # Use chunked semantic search to get per-document semantic scores.
         # `search_chunks` returns formatted dicts with 'id' (movie index) and 'score'.
-        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+        semantic_results = self.semantic_search.search_chunks(query, limit)
 
         # Normalize representations to list[(doc_id, score)]
         bm25_pairs = [(doc["id"], bm25_scores.get(doc["id"], 0.0)) for doc in bm25_docs]
@@ -118,16 +116,12 @@ class HybridSearch:
         return combined_results[:limit]
 
     def rrf_search(self, query: str, k: int, limit: int = 10):
-        """Perform Reciprocal Rank Fusion (RRF) search combining BM25 and chunked semantic scores.
-
-        - Request an oversampled set of candidates from both BM25 and chunked semantic search
-          (limit * 500) to ensure sufficient overlap.
-        """
+        """Perform Reciprocal Rank Fusion (RRF) search combining BM25 and chunked semantic scores."""
         # Get BM25 results (movies list and a dict of id->score)
-        bm25_docs, _ = self._bm25_search(query, limit * 500)
+        bm25_docs, _ = self._bm25_search(query, limit)
 
         # Use chunked semantic search to get per-document semantic scores.
-        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+        semantic_results = self.semantic_search.search_chunks(query, limit)
 
         # Build rank maps: doc_id -> rank (1-based)
         bm25_rank_map = {doc["id"]: rank + 1 for rank, doc in enumerate(bm25_docs)}

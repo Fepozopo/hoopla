@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from google import genai
 
 
-def get_response(method: str, query: str):
+def ai_enhance(method: str, query: str):
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:

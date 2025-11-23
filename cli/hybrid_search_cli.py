@@ -11,7 +11,8 @@ import argparse
 from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
 from cli.lib.hybrid_search import HybridSearch, normalize_scores
-from cli.prompts.enhance import get_response
+from cli.prompts.enhance import ai_enhance
+from cli.prompts.rerank_method import ai_rerank_method
 
 
 def main() -> None:
@@ -65,6 +66,12 @@ def main() -> None:
         choices=["spell", "rewrite", "expand"],
         help="Query enhancement method",
     )
+    _ = rrf_search_parser.add_argument(
+        "--rerank-method",
+        type=str,
+        choices=["individual"],
+        help="Reranking method to apply after RRF",
+    )
 
     # Use a typed namespace so static checkers know the types of attributes
     namespace = CLIArgs()
@@ -84,6 +91,11 @@ def main() -> None:
             query = getattr(args, "query")
             alpha = getattr(args, "alpha")
             limit = getattr(args, "limit")
+            if limit <= 0:
+                print("Limit must be a positive integer.")
+                return
+            else:
+                limit = limit * 500
             if query is None:
                 print("No query provided for weighted search.")
                 return
@@ -123,11 +135,24 @@ def main() -> None:
             k = getattr(args, "k")
             limit = getattr(args, "limit")
             method = getattr(args, "enhance")
+            rerank_method = getattr(args, "rerank_method")
+
             if query is None:
                 print("No query provided for RRF search.")
                 return
+
+            if limit <= 0:
+                print("Limit must be a positive integer.")
+                return
+            # Determine RRF limit based on reranking method
+            rrf_limit = 0
+            if rerank_method == "individual":
+                rrf_limit = limit * 5
+            else:
+                rrf_limit = limit * 500
+
             if method is not None:
-                enhanced_query = get_response(method, query)
+                enhanced_query = ai_enhance(method, query)
                 print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
                 if enhanced_query is not None:
                     query = enhanced_query
@@ -142,27 +167,59 @@ def main() -> None:
                 return
 
             hs = HybridSearch(movies)
-            results = hs.rrf_search(query, k, limit)
+            results = hs.rrf_search(query, k, rrf_limit)
 
-            # Print formatted, truncated results
-            for idx, item in enumerate(results, start=1):
-                doc = item.get("doc") or {}
-                title = doc.get("title", "(no title)")
-                rrf_score = item.get("rrf_score", 0.0)
-                bm25_rank = item.get("bm25_rank", 0)
-                semantic_rank = item.get("semantic_rank", 0)
-                description = doc.get("description", "")
-                # Truncate description to a reasonable length for display
-                excerpt = description
-                max_len = 100
-                if len(description) > max_len:
-                    excerpt = description[:max_len].rstrip() + "..."
+            if rerank_method is not None:
+                new_results = ai_rerank_method(rerank_method, query, results)
+                if new_results is not None:
+                    results = new_results
+                    # Print formatted, truncated results
+                    print(
+                        f"Reranking top {limit} results using {rerank_method} method..."
+                    )
+                    print(f"Reciprocal Rank Fusion Results for '{query}' (k={k})")
+                    for idx, item in enumerate(results[:limit], start=1):
+                        doc = item.get("doc") or {}
+                        title = doc.get("title", "(no title)")
+                        rrf_score = item.get("rrf_score", 0.0)
+                        bm25_rank = item.get("bm25_rank", 0)
+                        semantic_rank = item.get("semantic_rank", 0)
+                        rerank_score = item.get("rerank_score", 0.0)
+                        description = doc.get("description", "")
+                        # Truncate description to a reasonable length for display
+                        excerpt = description
+                        max_len = 100
+                        if len(description) > max_len:
+                            excerpt = description[:max_len].rstrip() + "..."
 
-                print(f"{idx}. {title}")
-                print(f"   RRF Score: {rrf_score:.3f}")
-                print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")
-                if excerpt:
-                    print(f"   {excerpt}")
+                        print(f"{idx}. {title}")
+                        print(f"   Rerank Score: {rerank_score:.3f}/10")
+                        print(f"   RRF Score: {rrf_score:.3f}")
+                        print(
+                            f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"
+                        )
+                        if excerpt:
+                            print(f"   {excerpt}")
+            else:
+                # Print formatted, truncated results
+                for idx, item in enumerate(results, start=1):
+                    doc = item.get("doc") or {}
+                    title = doc.get("title", "(no title)")
+                    rrf_score = item.get("rrf_score", 0.0)
+                    bm25_rank = item.get("bm25_rank", 0)
+                    semantic_rank = item.get("semantic_rank", 0)
+                    description = doc.get("description", "")
+                    # Truncate description to a reasonable length for display
+                    excerpt = description
+                    max_len = 100
+                    if len(description) > max_len:
+                        excerpt = description[:max_len].rstrip() + "..."
+
+                    print(f"{idx}. {title}")
+                    print(f"   RRF Score: {rrf_score:.3f}")
+                    print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")
+                    if excerpt:
+                        print(f"   {excerpt}")
         case _:
             parser.print_help()
 

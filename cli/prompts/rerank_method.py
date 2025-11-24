@@ -4,6 +4,7 @@ from time import sleep
 
 from dotenv import load_dotenv
 from google import genai
+from sentence_transformers import CrossEncoder
 
 
 def ai_rerank_method(method: str, query: str, results: list):
@@ -89,4 +90,24 @@ def ai_rerank_method(method: str, query: str, results: list):
                 return None
 
             results.sort(key=lambda x: x.get("rerank_rank", float("inf")))
+            return results
+        case "cross_encoder":
+            pairs = []
+            for item in results:
+                doc = item.get("doc") or {}
+                title = doc.get("title", "")
+                document = doc.get("document", "")
+                pairs.append(
+                    [query, f"{doc.get('title', '')} - {doc.get('document', '')}"]
+                )
+
+            cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2")
+            # Scores is a list of numbers, one for each pair
+            scores = cross_encoder.predict(pairs)
+
+            # Sort the results by the new score in descending order
+            for item, score in zip(results, scores):
+                item["rerank_cs_score"] = score
+            results.sort(key=lambda x: x.get("rerank_cs_score", 0.0), reverse=True)
+
             return results

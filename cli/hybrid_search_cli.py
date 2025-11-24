@@ -69,7 +69,7 @@ def main() -> None:
     _ = rrf_search_parser.add_argument(
         "--rerank-method",
         type=str,
-        choices=["individual", "batch"],
+        choices=["individual", "batch", "cross_encoder"],
         help="Reranking method to apply after RRF",
     )
 
@@ -191,20 +191,24 @@ def main() -> None:
                         if len(description) > max_len:
                             excerpt = description[:max_len].rstrip() + "..."
 
-                        # Get rerank score/rank if available
+                        # Get rerank info
                         rerank_title = ""
                         rerank_result = ""
                         rerank_score = item.get("rerank_score", 0.0)
                         rerank_rank = item.get("rerank_rank", 0)
+                        rerank_cs_score = item.get("rerank_cs_score", 0.0)
                         if rerank_score is not None:
-                            rerank_title = "Score"
+                            rerank_title = "Rerank Score"
                             rerank_result = f"{rerank_score:.3f}/10"
                         if rerank_rank is not None:
-                            rerank_title = "Rank"
+                            rerank_title = "Rerank Rank"
                             rerank_result = f"{rerank_rank}"
+                        if rerank_cs_score is not None:
+                            rerank_title = "Cross Encoder Score"
+                            rerank_result = f"{rerank_cs_score:.3f}"
 
                         print(f"{idx}. {title}")
-                        print(f"   Rerank {rerank_title}: {rerank_result}")
+                        print(f"   {rerank_title}: {rerank_result}")
                         print(f"   RRF Score: {rrf_score:.3f}")
                         print(
                             f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"

@@ -65,6 +65,7 @@ def main():
     for case in test_cases:
         query = case.get("query", "")
         relevant_list = case.get("relevant_docs", []) or []
+        total_relevant = len(relevant_list)
 
         # Run RRF search: k parameter fixed, top-k equals the --limit flag
         rrf_results = hs.rrf_search(query, k=RRF_K, limit=limit)
@@ -84,11 +85,12 @@ def main():
         relevant_set = {
             _normalize_title(t) for t in relevant_list if isinstance(t, str)
         }
-        match_count = sum(
+        relevant_retrieved = sum(
             1 for t in retrieved_titles if _normalize_title(t) in relevant_set
         )
 
-        precision = (match_count / limit) if limit > 0 else 0.0
+        precision = (relevant_retrieved / limit) if limit > 0 else 0.0
+        recall = (relevant_retrieved / total_relevant) if total_relevant > 0 else 0.0
 
         # Format lists for printing
         retrieved_str = ", ".join(retrieved_titles) if retrieved_titles else "(none)"
@@ -97,6 +99,7 @@ def main():
         # Print result block
         print(f"- Query: {query}")
         print(f"  - Precision@{limit}: {precision:.4f}")
+        print(f"  - Recall@{limit}: {recall:.4f}")
         print(f"  - Retrieved: {retrieved_str}")
         print(f"  - Relevant: {relevant_str}\n")
 

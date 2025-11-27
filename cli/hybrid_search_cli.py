@@ -7,6 +7,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import argparse
+import os
+
+from dotenv import load_dotenv
 
 from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
@@ -131,6 +134,8 @@ def main() -> None:
                 if excerpt:
                     print(f"   {excerpt}")
         case "rrf-search":
+            load_dotenv()
+            debug = os.environ.get("DEBUG", "0") == "1"
             query = getattr(args, "query")
             k = getattr(args, "k")
             limit = getattr(args, "limit")
@@ -151,6 +156,11 @@ def main() -> None:
             else:
                 rrf_limit = limit * 500
 
+            if debug:
+                print(
+                    f"RRF Search Parameters:\nquery='{query}'\nk={k}\nlimit={limit}\nrrf_limit={rrf_limit}\nenhance={method}\nrerank_method={rerank_method}\n\n"
+                )
+
             if method is not None:
                 enhanced_query = ai_enhance(method, query)
                 print(f"Enhanced query ({method}): '{query}' -> '{enhanced_query}'\n")
@@ -170,6 +180,29 @@ def main() -> None:
             results = hs.rrf_search(query, k, rrf_limit)
 
             if rerank_method is not None:
+                if debug:
+                    print(f"Raw RRF results for query '{query}':")
+                    for idx, item in enumerate(results, start=1):
+                        doc = item.get("doc") or {}
+                        title = doc.get("title", "(no title)")
+                        rrf_score = item.get("rrf_score", 0.0)
+                        bm25_rank = item.get("bm25_rank", 0)
+                        semantic_rank = item.get("semantic_rank", 0)
+                        description = doc.get("description", "")
+                        # Truncate description to a reasonable length for display
+                        excerpt = description
+                        max_len = 100
+                        if len(description) > max_len:
+                            excerpt = description[:max_len].rstrip() + "..."
+
+                        print(f"{idx}. {title}")
+                        print(f"   RRF Score: {rrf_score:.3f}")
+                        print(
+                            f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"
+                        )
+                        if excerpt:
+                            print(f"   {excerpt}")
+                    print("\n\n")
                 reranked_results = ai_rerank_method(rerank_method, query, results)
                 if reranked_results is not None:
                     results = reranked_results

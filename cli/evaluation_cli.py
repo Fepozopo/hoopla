@@ -81,6 +81,8 @@ def main():
                 title = "(no title)"
             retrieved_titles.append(title)
 
+        total_retrieved = len(retrieved_titles)
+
         # Compute precision: fraction of retrieved titles (out of `limit`) that are in the golden relevant set.
         relevant_set = {
             _normalize_title(t) for t in relevant_list if isinstance(t, str)
@@ -89,8 +91,15 @@ def main():
             1 for t in retrieved_titles if _normalize_title(t) in relevant_set
         )
 
-        precision = (relevant_retrieved / limit) if limit > 0 else 0.0
+        precision = (
+            (relevant_retrieved / total_retrieved) if total_retrieved > 0 else 0.0
+        )
         recall = (relevant_retrieved / total_relevant) if total_relevant > 0 else 0.0
+        f1 = (
+            2 * (precision * recall) / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
 
         # Format lists for printing
         retrieved_str = ", ".join(retrieved_titles) if retrieved_titles else "(none)"
@@ -100,6 +109,7 @@ def main():
         print(f"- Query: {query}")
         print(f"  - Precision@{limit}: {precision:.4f}")
         print(f"  - Recall@{limit}: {recall:.4f}")
+        print(f"  - F1 Score: {f1:.4f}")
         print(f"  - Retrieved: {retrieved_str}")
         print(f"  - Relevant: {relevant_str}\n")
 

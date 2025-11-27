@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+from ast import FormattedValue
 from pathlib import Path
 
 # Ensure the project root (one level above the `cli` package) is on sys.path
@@ -15,6 +16,7 @@ from cli.helpers import load_movies
 from cli.keyword_search_cli import CLIArgs
 from cli.lib.hybrid_search import HybridSearch, normalize_scores
 from cli.prompts.enhance import ai_enhance
+from cli.prompts.evaluate import ai_evaluate_results
 from cli.prompts.rerank_method import ai_rerank_method
 
 
@@ -74,6 +76,11 @@ def main() -> None:
         type=str,
         choices=["individual", "batch", "cross_encoder"],
         help="Reranking method to apply after RRF",
+    )
+    _ = rrf_search_parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Evaluate search results against golden dataset",
     )
 
     # Use a typed namespace so static checkers know the types of attributes
@@ -141,6 +148,9 @@ def main() -> None:
             limit = getattr(args, "limit")
             method = getattr(args, "enhance")
             rerank_method = getattr(args, "rerank_method")
+            evaluate = getattr(
+                args, "evaluate", False
+            )  # Check if '--evaluate' flag is set
 
             if query is None:
                 print("No query provided for RRF search.")
@@ -178,6 +188,9 @@ def main() -> None:
 
             hs = HybridSearch(movies)
             results = hs.rrf_search(query, k, rrf_limit)
+
+            formatted_results = []  # To hold results with formatted strings for evaluation
+            top_titles = []  # To hold just the titles of the top results
 
             if rerank_method is not None:
                 if debug:
@@ -240,17 +253,25 @@ def main() -> None:
                             rerank_title = "Cross Encoder Score"
                             rerank_result = f"{rerank_cs_score:.3f}"
 
-                        print(f"{idx}. {title}")
-                        print(f"   {rerank_title}: {rerank_result}")
-                        print(f"   RRF Score: {rrf_score:.3f}")
-                        print(
+                        # Build a single formatted string for this result and add it to formatted_results
+                        formatted_lines = []
+                        formatted_lines.append(f"{idx}. {title}")
+                        formatted_lines.append(f"   {rerank_title}: {rerank_result}")
+                        formatted_lines.append(f"   RRF Score: {rrf_score:.3f}")
+                        formatted_lines.append(
                             f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"
                         )
                         if excerpt:
-                            print(f"   {excerpt}")
+                            formatted_lines.append(f"   {excerpt}")
+                        formatted_str = "\n".join(formatted_lines)
+
+                        # Add to formatted results list and also print to stdout for immediate feedback
+                        formatted_results.append(formatted_str)
+                        top_titles.append(title)
+                        print(formatted_str)
             else:
                 # Print formatted, truncated results
-                for idx, item in enumerate(results, start=1):
+                for idx, item in enumerate(results[:limit], start=1):
                     doc = item.get("doc") or {}
                     title = doc.get("title", "(no title)")
                     rrf_score = item.get("rrf_score", 0.0)
@@ -263,11 +284,31 @@ def main() -> None:
                     if len(description) > max_len:
                         excerpt = description[:max_len].rstrip() + "..."
 
-                    print(f"{idx}. {title}")
-                    print(f"   RRF Score: {rrf_score:.3f}")
-                    print(f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}")
+                    # Build a single formatted string for this result and add it to formatted_results
+                    formatted_lines = []
+                    formatted_lines.append(f"{idx}. {title}")
+                    formatted_lines.append(f"   RRF Score: {rrf_score:.3f}")
+                    formatted_lines.append(
+                        f"   BM25 Rank: {bm25_rank}, Semantic Rank: {semantic_rank}"
+                    )
                     if excerpt:
-                        print(f"   {excerpt}")
+                        formatted_lines.append(f"   {excerpt}")
+                    formatted_str = "\n".join(formatted_lines)
+
+                    # Add to formatted results list and also print to stdout for immediate feedback
+                    formatted_results.append(formatted_str)
+                    top_titles.append(title)
+                    print(formatted_str)
+
+            if evaluate:
+                print("\nEvaluating search results against golden dataset...\n")
+                scores = ai_evaluate_results(query, formatted_results)
+                if scores is not None and len(scores) >= limit:
+                    for idx, title in enumerate(top_titles[:limit], start=1):
+                        print(f"{idx}. {title}: {scores[idx - 1]}/3")
+                else:
+                    print("No evaluation scores returned or mismatch in result count.")
+
         case _:
             parser.print_help()
 

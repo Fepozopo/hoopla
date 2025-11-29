@@ -35,6 +35,7 @@ def main():
         case "rag":
             load_dotenv()
             debug = os.environ.get("DEBUG", "0") == "1"
+            cmd = "rag"
             query = getattr(args, "query")
             k = 10
             limit = 5
@@ -54,7 +55,7 @@ def main():
             hs = HybridSearch(movies)
             docs = hs.rrf_search(query, k, limit)
 
-            response = ai_augment(query, docs)
+            response = ai_augment(cmd, query, docs)
 
             print("Search Results:")
             for _, item in enumerate(docs[:limit], start=1):

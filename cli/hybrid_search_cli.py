@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import sys
-from ast import FormattedValue
 from pathlib import Path
 
 # Ensure the project root (one level above the `cli` package) is on sys.path

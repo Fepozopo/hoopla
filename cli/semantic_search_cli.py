@@ -160,7 +160,7 @@ def main():
             chunked_search = ChunkedSemanticSearch()
 
             # Use the chunked search's method to load or create embeddings
-            load_fn = chunked_search.load_or_create_chunk_embeddings  # <-- fixed typo
+            load_fn = chunked_search.load_or_create_chunk_embeddings
 
             try:
                 embeddings = load_fn(documents)

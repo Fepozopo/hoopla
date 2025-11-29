@@ -8,7 +8,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import json
 import re
-from pathlib import Path
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -16,12 +15,15 @@ from sentence_transformers import SentenceTransformer
 from cli.helpers import Movie, load_movies
 
 
-# Define a class called SemanticSearch
 class SemanticSearch:
+    """
+    Basic semantic search that creates and queries embedding vectors for whole documents.
+    """
+
     model: SentenceTransformer
     embeddings: np.ndarray | None
     documents: list[Movie] | None
-    document_map: dict[int, Movie] | dict[int, Movie]
+    document_map: dict[int, Movie]
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self.model = SentenceTransformer(model_name)
@@ -29,90 +31,78 @@ class SemanticSearch:
         self.documents = None
         self.document_map = {}
 
-    def generate_embedding(self, text: str):
-        if text.strip() == "":
+    def generate_embedding(self, text: str) -> np.ndarray:
+        if text is None or text.strip() == "":
             raise ValueError("Input text cannot be empty or whitespace.")
-
-        text_list = [text]  # The encode method expects a list of inputs
-        embedding = self.model.encode(text_list)
-        return embedding[0]
+        # SentenceTransformer.encode accepts lists; return the first vector.
+        vecs = self.model.encode([text])
+        return vecs[0]
 
     def build_embeddings(self, documents: list[Movie]) -> np.ndarray:
-        # Defensive guard: do not attempt to build embeddings for an empty corpus.
         if not documents:
             raise ValueError("Cannot build embeddings: documents list is empty.")
 
-        # Create strings of "Title: Description" for each movie.
-        movies = [f"{doc['title']}: {doc['description']}" for doc in documents]
+        # Build text inputs from the document fields to embed.
+        texts = [
+            f"{doc.get('title', '')}: {doc.get('description', '') or ''}"
+            for doc in documents
+        ]
 
-        # Build embeddings and provide a clearer error if the encoder fails.
         try:
-            self.embeddings = self.model.encode(movies, show_progress_bar=True)
+            self.embeddings = self.model.encode(texts, show_progress_bar=True)
         except Exception as e:
             raise RuntimeError(f"Failed to build embeddings: {e}") from e
 
         self.documents = documents
+        # document_map maps numeric index -> movie dict (used by index-based methods)
         self.document_map = {i: doc for i, doc in enumerate(documents)}
 
-        # Ensure cache directory exists before saving; writing the cache is best-effort.
+        # Try to persist embeddings to cache; failure should not stop execution.
         cache_path = Path("cache/movie_embeddings.npy")
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             np.save(cache_path, self.embeddings)
         except Exception as e:
-            # Do not fail the entire operation if the cache cannot be written;
-            # keep embeddings available in memory but notify the user.
             print(f"Warning: failed to write embeddings cache: {e}")
 
-        # Ensure we always return an ndarray at runtime for callers / static analysis.
         assert isinstance(self.embeddings, np.ndarray)
         return self.embeddings
 
     def load_or_create_embeddings(self, documents: list[Movie]) -> np.ndarray:
-        # Ensure callers supply a non-empty documents list. This prevents silent
-        # mismatches where embeddings exist but the document map is empty.
         if not documents:
             raise ValueError(
                 "Cannot load or create embeddings: documents list is empty."
             )
 
         cache_path = Path("cache/movie_embeddings.npy")
-
         if cache_path.exists():
             try:
                 loaded = np.load(cache_path)
             except Exception as e:
-                # If the cache cannot be read (corrupt file, permission issues, etc.)
-                # rebuild from the provided documents and communicate the reason.
                 print(f"Cached embeddings could not be read ({e}); rebuilding.")
                 return self.build_embeddings(documents)
 
-            # If the cached embeddings don't match the current documents, rebuild them.
+            # Basic validation: must be 2D and rows should match number of documents
             if (
                 not isinstance(loaded, np.ndarray)
                 or loaded.ndim != 2
                 or loaded.shape[0] != len(documents)
             ):
-                print(
-                    "Cached embeddings do not match the current documents; rebuilding."
-                )
+                print("Cached embeddings do not match current documents; rebuilding.")
                 return self.build_embeddings(documents)
 
-            # Cache looks valid: use it and wire up the in-memory document map.
             self.embeddings = loaded
             self.documents = documents
             self.document_map = {i: doc for i, doc in enumerate(documents)}
         else:
-            # If cached embeddings are not found, build them.
             return self.build_embeddings(documents)
 
-        # Runtime guard to ensure we return a concrete ndarray (not None).
         if self.embeddings is None:
             raise RuntimeError("Embeddings could not be loaded or built.")
         assert isinstance(self.embeddings, np.ndarray)
         return self.embeddings
 
-    def search(self, query: str, limit: int) -> list[tuple[Movie, float]]:
+    def search(self, query: str, limit: int = 10) -> list[tuple[Movie, float]]:
         if self.embeddings is None or self.documents is None:
             raise RuntimeError(
                 "No embeddings loaded. Call `load_or_create_embeddings` first."
@@ -120,47 +110,57 @@ class SemanticSearch:
 
         query_embedding = self.generate_embedding(query)
         similarities = [
-            (idx, cosine_similarity(query_embedding, doc_embedding))
-            for idx, doc_embedding in enumerate(self.embeddings)
+            (idx, cosine_similarity(query_embedding, emb))
+            for idx, emb in enumerate(self.embeddings)
         ]
         similarities.sort(key=lambda x: x[1], reverse=True)
-        top_results = similarities[:limit]
-
-        # Return the top results (up to limit) as a list of dictionaries
-        return [(self.document_map[idx], score) for idx, score in top_results]
+        top = similarities[:limit]
+        return [(self.document_map[idx], score) for idx, score in top]
 
 
 class ChunkedSemanticSearch(SemanticSearch):
-    def __init__(self, model_name="all-MiniLM-L6-v2") -> None:
+    """
+    Semantic search which chunks document descriptions into smaller pieces,
+    builds embeddings for chunks, and aggregates chunk-level scores into
+    document-level scores.
+
+    Key change: chunk metadata stores the persistent `movie_id` and
+    `search_chunks` returns `id` as the persistent `movie_id`. Aggregation
+    is done with `movie_id` as the key so results are compatible with BM25's
+    persistent document ids.
+    """
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         super().__init__(model_name)
         self.chunk_embeddings = None
         self.chunk_metadata = None
 
-    def build_chunk_embeddings(self, documents: list[Movie]):
-        # Defensive guard: do not attempt to build embeddings for an empty corpus.
+    def build_chunk_embeddings(self, documents: list[Movie]) -> np.ndarray:
         if not documents:
             raise ValueError("Cannot build chunk embeddings: documents list is empty.")
 
-        # Populate documents and document_map just like build_embeddings expects.
+        # Keep both index-based map and persistent-id aware document map.
         self.documents = documents
         self.document_map = {i: doc for i, doc in enumerate(documents)}
+        # doc_map_by_id for fast lookup by persistent id
+        # doc_map_by_id = {doc.get("id"): doc for doc in documents}
 
-        all_chunks = []
-        chunk_metadata = []
+        all_chunks: list[str] = []
+        chunk_metadata: list[dict] = []
 
-        for doc_id, doc in enumerate(documents):
-            description = doc.get("description", "")
-            if not description:
-                continue
+        for doc_idx, doc in enumerate(documents):
+            description = doc.get("description", "") or ""
             chunks = list(semantic_chunks(description, max_chunk_size=4, overlap=1))
             if not chunks:
                 continue
-            all_chunks.extend(chunks)
             total_chunks = len(chunks)
-            for chunk_idx, _ in enumerate(chunks):
+            # append chunk text and metadata for each chunk
+            for chunk_idx, chunk_text in enumerate(chunks):
+                all_chunks.append(chunk_text)
                 chunk_metadata.append(
                     {
-                        "movie_idx": doc_id,
+                        "movie_idx": doc_idx,  # position in documents list
+                        "movie_id": doc.get("id"),  # persistent id
                         "chunk_idx": chunk_idx,
                         "total_chunks": total_chunks,
                     }
@@ -178,20 +178,18 @@ class ChunkedSemanticSearch(SemanticSearch):
         except Exception as e:
             raise RuntimeError(f"Failed to build chunk embeddings: {e}") from e
 
-        # self.documents already set above
         self.chunk_metadata = chunk_metadata
 
-        # Ensure cache directory exists before saving; writing the cache is best-effort.
+        # persist chunk embeddings and metadata when possible
         cache_dir = Path("cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
-
         try:
             np.save(cache_dir / "chunk_embeddings.npy", self.chunk_embeddings)
         except Exception as e:
             print(f"Warning: failed to write chunk embeddings cache: {e}")
 
         try:
-            with open(cache_dir / "chunk_metadata.json", "w") as f:
+            with open(cache_dir / "chunk_metadata.json", "w", encoding="utf-8") as f:
                 json.dump(
                     {"chunks": chunk_metadata, "total_chunks": len(all_chunks)},
                     f,
@@ -204,13 +202,11 @@ class ChunkedSemanticSearch(SemanticSearch):
         return self.chunk_embeddings
 
     def load_or_create_chunk_embeddings(self, documents: list[Movie]) -> np.ndarray:
-        # Defensive guard: do not attempt to load/create embeddings for an empty corpus.
         if not documents:
             raise ValueError(
                 "Cannot load or create chunk embeddings: documents list is empty."
             )
 
-        # Populate documents and document_map from the input documents right away.
         self.documents = documents
         self.document_map = {i: doc for i, doc in enumerate(documents)}
 
@@ -226,15 +222,13 @@ class ChunkedSemanticSearch(SemanticSearch):
                 return self.build_chunk_embeddings(documents)
 
             try:
-                import json
-
-                with open(metadata_path, "r") as f:
+                with open(metadata_path, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
             except Exception as e:
                 print(f"Cached chunk metadata could not be read ({e}); rebuilding.")
                 return self.build_chunk_embeddings(documents)
 
-            # Validate format and length against metadata if available.
+            # Basic validations
             if (
                 not isinstance(loaded_embeddings, np.ndarray)
                 or loaded_embeddings.ndim != 2
@@ -255,6 +249,7 @@ class ChunkedSemanticSearch(SemanticSearch):
                 return self.build_chunk_embeddings(documents)
 
             self.chunk_embeddings = loaded_embeddings
+            # Ensure chunk list structure is present
             self.chunk_metadata = metadata.get("chunks", [])
         else:
             return self.build_chunk_embeddings(documents)
@@ -264,71 +259,90 @@ class ChunkedSemanticSearch(SemanticSearch):
         assert isinstance(self.chunk_embeddings, np.ndarray)
         return self.chunk_embeddings
 
-    def search_chunks(self, query: str, limit: int = 10):
+    def search_chunks(self, query: str, limit: int = 10) -> list[dict]:
+        """
+        Search chunk embeddings with the given query and return a list of formatted
+        results keyed by persistent `movie_id`. Each returned item is a dict:
+          {
+            "id": <persistent movie id>,
+            "title": <title>,
+            "document": <truncated description>,
+            "score": <aggregated score>,
+            "metadata": { ... }
+          }
+        Aggregation uses the best chunk score per persistent movie_id.
+        """
         if self.chunk_embeddings is None or self.chunk_metadata is None:
             raise RuntimeError(
                 "No chunk embeddings loaded. Call `load_or_create_chunk_embeddings` first."
             )
 
-        # Generate an embedding of the query (using the method from the SemanticSearch class)
-        semantic_search = SemanticSearch()
-        query_embedding = semantic_search.generate_embedding(query)
+        # Use this instance to generate the query embedding (avoids reloading model)
+        query_embedding = self.generate_embedding(query)
 
-        # Populate an empty list to store "chunk score" dictionaries
-        chunk_scores = []
-
-        # Compute cosine similarity between the query embedding and each chunk embedding
-        for idx, chunk_embedding in enumerate(self.chunk_embeddings):
-            score = cosine_similarity(query_embedding, chunk_embedding)
-            chunk_info = self.chunk_metadata[idx]
+        # Build chunk_scores including persistent movie_id
+        chunk_scores: list[dict] = []
+        for idx, chunk_emb in enumerate(self.chunk_embeddings):
+            # defensive: metadata list might be shorter if cache mismatch; guard with try/except
+            try:
+                chunk_info = self.chunk_metadata[idx]
+            except Exception:
+                # skip entries without metadata
+                continue
+            score = float(cosine_similarity(query_embedding, chunk_emb))
             chunk_scores.append(
                 {
-                    "chunk_idx": chunk_info["chunk_idx"],
-                    "movie_idx": chunk_info["movie_idx"],
+                    "chunk_idx": chunk_info.get("chunk_idx"),
+                    "movie_idx": chunk_info.get("movie_idx"),
+                    "movie_id": chunk_info.get("movie_id"),
                     "score": score,
                 }
             )
 
-        # Create an empty dictionary that maps movie indexes to their scores
-        movie_scores = {}
+        # Aggregate best score per persistent movie_id (preferred) or by movie_idx fallback
+        movie_scores: dict[int, float] = {}
+        # Also keep lists of matching chunks per movie_id for metadata
+        chunks_by_movie: dict[int, list[dict]] = {}
 
-        # For each chunk score, if the movie_idx is not in the movie score dictionary yet,
-        # or the new score is higher than the existing one,
-        # update the movie score dictionary with the new chunk score
-        for chunk_score in chunk_scores:
-            movie_idx = chunk_score["movie_idx"]
-            score = chunk_score["score"]
-            if movie_idx not in movie_scores or score > movie_scores[movie_idx]:
-                movie_scores[movie_idx] = score
+        for c in chunk_scores:
+            movie_id = c.get("movie_id")
+            if movie_id is None:
+                # Fall back to movie_idx if metadata lacks movie_id
+                movie_id = c.get("movie_idx")
 
-        # Sort the movie scores by score in descending order
+            if movie_id is None:
+                # Skip chunk if no identifier is available
+                continue
+
+            score = c["score"]
+            # track matching chunks
+            chunks_by_movie.setdefault(movie_id, []).append(c)
+
+            # keep the best score per movie_id
+            if (movie_id not in movie_scores) or (score > movie_scores[movie_id]):
+                movie_scores[movie_id] = score
+
+        # Sort results by aggregated score descending
         sorted_movie_scores = sorted(
             movie_scores.items(), key=lambda x: x[1], reverse=True
         )
-
-        # Filter down to the top limit movies
         top_results = sorted_movie_scores[:limit]
 
         SCORE_PRECISION = 4
+        # Build a fast lookup by persistent id for document info
+        doc_map_by_id = {doc.get("id"): doc for doc in (self.documents or [])}
 
-        # Build formatted results
-        formatted_results = []
-        for movie_idx, score in top_results:
-            # Safely access the document; fallback to empty dict if missing.
-            doc = (
-                self.documents[movie_idx]
-                if self.documents and movie_idx < len(self.documents)
-                else {}
-            )
+        formatted_results: list[dict] = []
+        for movie_id, score in top_results:
+            doc = doc_map_by_id.get(movie_id, {}) or {}
             title = doc.get("title", "")
             description = doc.get("description", "") or ""
             truncated = description[:100]
 
-            # Build metadata: include best matching chunk info if available.
+            matching_chunks = chunks_by_movie.get(movie_id, [])
             metadata = {}
-            matching_chunks = [c for c in chunk_scores if c["movie_idx"] == movie_idx]
             if matching_chunks:
-                best_chunk = max(matching_chunks, key=lambda x: x["score"])
+                best_chunk = max(matching_chunks, key=lambda x: x.get("score", 0.0))
                 metadata = {
                     "best_chunk_idx": best_chunk.get("chunk_idx"),
                     "best_chunk_score": round(
@@ -339,15 +353,18 @@ class ChunkedSemanticSearch(SemanticSearch):
 
             formatted_results.append(
                 {
-                    "id": movie_idx,
+                    "id": movie_id,  # persistent movie id (compatible with BM25 outputs)
                     "title": title,
                     "document": truncated,
-                    "score": round(score, SCORE_PRECISION),
+                    "score": round(float(score), SCORE_PRECISION),
                     "metadata": metadata or {},
                 }
             )
 
         return formatted_results
+
+
+# Utility functions ------------------------------------------------------------
 
 
 def verify_model():
@@ -379,7 +396,6 @@ def verify_embeddings():
     # Build or load embeddings for the documents.
     embeddings = semantic_search.load_or_create_embeddings(documents)
 
-    # Extra runtime check for safety / static-analysis friendliness.
     if embeddings is None:
         print("No embeddings available.")
         return
@@ -399,60 +415,46 @@ def embed_query_text(query: str):
     print(f"Shape: {embedding.shape}")
 
 
-def cosine_similarity(vec1: float, vec2: float):
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     dot_product = np.dot(vec1, vec2)
     norm_vec1 = np.linalg.norm(vec1)
     norm_vec2 = np.linalg.norm(vec2)
     if norm_vec1 == 0 or norm_vec2 == 0:
         return 0.0
-    return dot_product / (norm_vec1 * norm_vec2)
+    return float(dot_product / (norm_vec1 * norm_vec2))
 
 
 def fixed_size_chunks(text: str, size: int, overlap: int = 0):
-    """Yield successive fixed-size chunks from text by grouping 'size'
-    words together into a single string.
-    """
+    """Yield successive fixed-size chunks from text by grouping 'size' words."""
     words = text.split()
     start = 0
     while start < len(words):
         end = start + size
-        chunk = " ".join(words[start:end])
-        yield chunk
+        yield " ".join(words[start:end])
         if start + size >= len(words):
             break
         start += size - overlap
 
 
 def semantic_chunks(text: str, max_chunk_size: int = 4, overlap: int = 0):
-    """Yield successive semantic chunks from text by grouping sentences.
+    """
+    Yield successive semantic chunks from text by grouping sentences.
 
     Each chunk will contain up to `max_chunk_size` sentences. Adjacent chunks
     will overlap by `overlap` sentences (the number of sentences, not words).
-
-    Args:
-        text: The input text to chunk.
-        max_chunk_size: Maximum number of sentences per chunk (must be >= 1).
-        overlap: Number of sentences to overlap between consecutive chunks
-                 (must be >= 0 and < max_chunk_size).
     """
     if max_chunk_size <= 0:
         raise ValueError("max_chunk_size must be a positive integer.")
-    if overlap < 0:
-        raise ValueError("overlap must be a non-negative integer.")
-    if overlap >= max_chunk_size:
-        raise ValueError("overlap must be smaller than max_chunk_size.")
+    if overlap < 0 or overlap >= max_chunk_size:
+        raise ValueError("overlap must be between 0 and max_chunk_size-1.")
 
-    # Split the input into individual sentences. Use \s+ after lookbehind to
-    # handle newlines and multiple spaces. Strip out any empty entries.
+    # Split the input into individual sentences using punctuation boundaries.
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
 
     if not sentences:
         return
 
-    # Step is how many sentences we advance for the next chunk.
     step = max_chunk_size - overlap
-
-    # Slide a window of up to `max_chunk_size` sentences, advancing by `step`.
     for start in range(0, len(sentences), step):
         end = start + max_chunk_size
         chunk_sentences = sentences[start:end]

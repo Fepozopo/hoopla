@@ -46,3 +46,35 @@ def ai_augment_summarize(query: str, results: list):
         """,
     )
     return response.text
+
+
+def ai_augment_citations(query: str, documents: list):
+    load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable not set.")
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-001",
+        contents=f"""Answer the question or provide information based on the provided documents.
+
+        This should be tailored to Hoopla users. Hoopla is a movie streaming service.
+
+        If not enough information is available to give a good answer, say so but give as good of an answer as you can while citing the sources you have.
+
+        Query: {query}
+
+        Documents:
+        {documents}
+
+        Instructions:
+        - Provide a comprehensive answer that addresses the query
+        - Cite sources using [1], [2], etc. format when referencing information
+        - If sources disagree, mention the different viewpoints
+        - If the answer isn't in the documents, say "I don't have enough information"
+        - Be direct and informative
+
+        Answer:""",
+    )
+    return response.text

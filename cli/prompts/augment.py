@@ -78,3 +78,32 @@ def ai_augment_citations(query: str, documents: list):
         Answer:""",
     )
     return response.text
+
+
+def ai_augment_question(question: str, documents: list):
+    load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable not set.")
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-001",
+        contents=f"""Answer the user's question based on the provided movies that are available on Hoopla.
+
+        This should be tailored to Hoopla users. Hoopla is a movie streaming service.
+
+        Question: {question}
+
+        Documents:
+        {documents}
+
+        Instructions:
+        - Answer questions directly and concisely
+        - Be casual and conversational
+        - Don't be cringe or hype-y
+        - Talk like a normal person would in a chat conversation
+
+        Answer:""",
+    )
+    return response.text
